@@ -861,7 +861,7 @@ function setTheme(t) {
   document.body.setAttribute('data-theme', t);
   document.querySelectorAll('.dz-dot').forEach(d => d.classList.toggle('on', d.dataset.t === t));
   document.querySelectorAll('.tp-opt').forEach(o => o.classList.toggle('cur', o.dataset.t === t));
-  const mc = { day:'#6B5340', sepia:'#8B5E3C', night:'#C8A87A' };
+  const mc = { day:'#00ADCE', sepia:'#00ADCE', night:'#005F72' };
   document.querySelector('#meta-theme').content = mc[t] || mc.sepia;
   if (rend) rend.themes.select(t);
 }
@@ -879,6 +879,7 @@ function setFS(n) {
    Open book
    ============================================================ */
 async function openBook(buf, filename) {
+  if (typeof ePub === 'undefined') throw new Error('epub.js failed to load — check your network connection');
   if (rend) { rend.destroy(); rend = null; }
   if (book) { book.destroy(); book = null; }
   epubViewer.innerHTML = '';
@@ -1184,8 +1185,20 @@ $('open-btn').onclick = () => fileIn.click();
 });
 
 async function loadFile(f) {
-  const buf = await f.arrayBuffer();
-  await openBook(buf, f.name);
+  try {
+    const buf = await f.arrayBuffer();
+    await openBook(buf, f.name);
+  } catch(e) {
+    console.error('AtomBook openBook error:', e);
+    dropZone.style.display = 'flex';
+    reader.classList.remove('on');
+    const msg = e?.message || String(e);
+    const sub = document.querySelector('.dz-sub');
+    if (sub) {
+      sub.textContent = 'Could not open EPUB: ' + msg;
+      setTimeout(() => { sub.textContent = 'Drop an EPUB to begin reading'; }, 5000);
+    }
+  }
 }
 
 $('sync-btn').onclick = connectSync;
