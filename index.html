@@ -1,0 +1,1254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AtomBook</title>
+<meta name="description" content="Minimal EPUB reader. Part of the Atom ecosystem.">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="AtomBook">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#00ADCE" id="meta-theme">
+
+<!-- Flamingo favicon — inline SVG (white flamingo on cyan rounded square) -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><rect width='100' height='100' rx='22' fill='%2300ADCE'/><path d='M50 90 L24 92 L26 96 L50 94 Z' fill='%23F2B5A0'/><path d='M50 90 L76 92 L74 96 L50 94 Z' fill='%23F2B5A0' opacity='0.78'/><path d='M43 58 L47 72 L36 90 L32 92' fill='none' stroke='%23FFFFFF' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/><path d='M39 59 L41 74 L48 90 L52 92' fill='none' stroke='%23FFFFFF' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/><path d='M20 45 L10 38 L19 51 Z' fill='%23FFFFFF'/><path d='M18 50 C16 42 24 37 35 37 C48 37 57 43 55 52 C54 60 45 63 35 62 C26 61 20 58 18 50 Z' fill='%23FFFFFF'/><path d='M52 44 C49 30 55 20 62 12' fill='none' stroke='%23FFFFFF' stroke-width='4.6' stroke-linecap='round'/><circle cx='63' cy='11' r='3.8' fill='%23FFFFFF'/><path d='M65 9 L72 11 L70 15 L66 14 Z' fill='%23F2B5A0'/></svg>">
+
+<!-- Apple touch icon -->
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><rect width='100' height='100' rx='22' fill='%2300ADCE'/><path d='M50 90 L24 92 L26 96 L50 94 Z' fill='%23F2B5A0'/><path d='M50 90 L76 92 L74 96 L50 94 Z' fill='%23F2B5A0' opacity='0.78'/><path d='M43 58 L47 72 L36 90 L32 92' fill='none' stroke='%23FFFFFF' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/><path d='M39 59 L41 74 L48 90 L52 92' fill='none' stroke='%23FFFFFF' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/><path d='M20 45 L10 38 L19 51 Z' fill='%23FFFFFF'/><path d='M18 50 C16 42 24 37 35 37 C48 37 57 43 55 52 C54 60 45 63 35 62 C26 61 20 58 18 50 Z' fill='%23FFFFFF'/><path d='M52 44 C49 30 55 20 62 12' fill='none' stroke='%23FFFFFF' stroke-width='4.6' stroke-linecap='round'/><circle cx='63' cy='11' r='3.8' fill='%23FFFFFF'/><path d='M65 9 L72 11 L70 15 L66 14 Z' fill='%23F2B5A0'/></svg>">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Noto+Serif+SC:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/epubjs/dist/epub.min.js"></script>
+<style>
+
+/* ============================================================
+   Theme tokens
+   ============================================================ */
+:root {
+  --bg:         #FBF7F0;
+  --text:       #1A1A1A;
+  --text-muted: #888;
+  --border:     rgba(0,0,0,0.08);
+  --bar-bg:     rgba(251,247,240,0.94);
+  --hover:      rgba(0,0,0,0.05);
+  --panel-bg:   #F2EDE4;
+  --accent:     #6B5340;
+  --shadow:     rgba(0,0,0,0.10);
+}
+[data-theme="sepia"] {
+  --bg:         #F5E9D5;
+  --text:       #3B2E1E;
+  --text-muted: #9A7E62;
+  --border:     rgba(59,46,30,0.10);
+  --bar-bg:     rgba(245,233,213,0.94);
+  --hover:      rgba(59,46,30,0.06);
+  --panel-bg:   #EDE0C8;
+  --accent:     #8B5E3C;
+  --shadow:     rgba(59,46,30,0.12);
+}
+[data-theme="night"] {
+  --bg:         #1C1C1E;
+  --text:       #E5E0D8;
+  --text-muted: #6E6E73;
+  --border:     rgba(255,255,255,0.07);
+  --bar-bg:     rgba(28,28,30,0.94);
+  --hover:      rgba(255,255,255,0.06);
+  --panel-bg:   #2C2C2E;
+  --accent:     #C8A87A;
+  --shadow:     rgba(0,0,0,0.35);
+}
+
+/* ============================================================
+   Reset
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; height: 100%; overflow: hidden;
+  background: var(--bg); color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  transition: background .3s, color .3s;
+}
+button { cursor: pointer; font-family: inherit; }
+textarea, input { font-family: inherit; }
+
+/* ============================================================
+   Flamingo SVG mark (reusable via CSS class)
+   ============================================================ */
+.flamingo-mark {
+  color: var(--accent);
+  display: block;
+}
+
+/* ============================================================
+   Drop zone / Splash
+   ============================================================ */
+#drop-zone {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 0;
+  background: var(--bg);
+  transition: background .3s;
+}
+#drop-zone.drag-over { background: var(--panel-bg); }
+#drop-zone.drag-over .dz-flamingo { transform: scale(1.06); }
+
+.dz-flamingo {
+  width: 72px; height: 80px;
+  margin-bottom: 18px;
+  transition: transform .2s ease;
+}
+
+.dz-wordmark {
+  font-family: 'Spectral', 'Noto Serif SC', serif;
+  font-size: 28px; font-weight: 300; letter-spacing: -.3px;
+  color: var(--text); opacity: .85;
+  margin-bottom: 6px;
+}
+.dz-sub {
+  font-size: 13px; font-weight: 300;
+  color: var(--text-muted); margin-bottom: 22px;
+}
+.dz-btn {
+  padding: 9px 28px; border-radius: 22px;
+  border: 1.5px solid var(--border);
+  background: transparent; color: var(--text);
+  font-size: 13.5px; font-weight: 400;
+  transition: background .15s, border-color .15s;
+  margin-bottom: 20px;
+}
+.dz-btn:hover { background: var(--hover); border-color: var(--accent); }
+
+/* theme row */
+.dz-themes { display: flex; gap: 10px; margin-bottom: 0; }
+.dz-dot {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid transparent; cursor: pointer;
+  transition: transform .15s, border-color .15s;
+}
+.dz-dot:hover { transform: scale(1.15); }
+.dz-dot.on { border-color: var(--accent); }
+.dz-dot[data-t="day"]   { background:#FBF7F0; box-shadow:0 0 0 1px rgba(0,0,0,.14); }
+.dz-dot[data-t="sepia"] { background:#F5E9D5; box-shadow:0 0 0 1px rgba(0,0,0,.10); }
+.dz-dot[data-t="night"] { background:#1C1C1E; box-shadow:0 0 0 1px rgba(255,255,255,.12); }
+
+.dz-sync {
+  position: absolute; bottom: 26px;
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; color: var(--text-muted);
+}
+.sync-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--text-muted); opacity: .35; flex-shrink: 0;
+  transition: background .3s, opacity .3s;
+}
+.sync-dot.on { background: #34C759; opacity: 1; }
+.dz-sync-btn {
+  padding: 3px 10px; border-radius: 10px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-muted); font-size: 11px;
+  transition: all .15s;
+}
+.dz-sync-btn:hover { background: var(--hover); color: var(--text); }
+
+/* ============================================================
+   Reader skeleton
+   ============================================================ */
+#reader {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
+  opacity: 0; pointer-events: none;
+  transition: opacity .4s ease;
+}
+#reader.on { opacity: 1; pointer-events: all; }
+
+/* ---- Toolbar ---- */
+#toolbar {
+  height: 46px; flex-shrink: 0;
+  display: flex; align-items: center; padding: 0 14px;
+  background: var(--bar-bg);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  transition: background .3s;
+  position: relative; z-index: 60; user-select: none;
+}
+.tb-left, .tb-right { display:flex; align-items:center; gap:2px; flex:1; }
+.tb-right  { justify-content: flex-end; }
+.tb-center { flex:2; text-align:center; overflow:hidden; }
+.tb-title {
+  font-family: 'Spectral','Noto Serif SC',serif;
+  font-size: 13.5px; font-weight: 400;
+  color: var(--text); opacity: .62;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 280px; margin: 0 auto;
+}
+
+/* Small inline flamingo in toolbar home button */
+.tb-flamingo { width: 16px; height: 18px; display:block; }
+
+.tb-btn {
+  width: 30px; height: 30px; border-radius: 7px;
+  border: none; background: transparent; color: var(--text);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; opacity: .58;
+  transition: background .15s, opacity .15s;
+}
+.tb-btn:hover { background: var(--hover); opacity: 1; }
+.tb-btn.lit   { opacity: 1; background: var(--hover); }
+.tb-sep { width:1px; height:16px; background:var(--border); margin:0 4px; }
+.fs-num {
+  font-size: 11.5px; color: var(--text-muted);
+  min-width: 22px; text-align: center; pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Reader area ---- */
+#reader-area {
+  flex: 1; position: relative; overflow: hidden;
+  display: flex; align-items: stretch;
+}
+#epub-viewer { flex: 1; position: relative; }
+
+/* Book-spine shadow when two-column */
+#epub-viewer::after {
+  content: ''; position: absolute;
+  top: 6%; bottom: 6%; left: 50%; width: 1px;
+  background: linear-gradient(to bottom,
+    transparent 0%, var(--border) 18%,
+    rgba(0,0,0,0.09) 50%,
+    var(--border) 82%, transparent 100%);
+  pointer-events: none; z-index: 5; display: none;
+}
+#epub-viewer.spread::after { display: block; }
+
+/* Nav arrows */
+.nav-btn {
+  position: absolute; top:0; bottom:0; width: 54px;
+  border: none; background: none;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 10; opacity: 0; transition: opacity .2s;
+}
+#reader-area:hover .nav-btn { opacity: 1; }
+#prev-btn { left: 0; } #next-btn { right: 0; }
+.nav-chev {
+  width: 8px; height: 16px;
+  color: var(--text); opacity: .28; transition: opacity .15s;
+}
+.nav-btn:hover .nav-chev { opacity: .72; }
+
+/* ---- Bottom bar ---- */
+#bottom-bar {
+  height: 34px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 22px;
+  background: var(--bar-bg);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border);
+  transition: background .3s;
+}
+#ch-title {
+  font-size: 11px; color: var(--text-muted); font-weight: 300;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 55%; letter-spacing: .12px;
+}
+.prog-row { display:flex; align-items:center; gap:10px; }
+#prog-track {
+  width: 88px; height: 2px;
+  background: var(--border); border-radius: 1px; overflow: hidden;
+}
+#prog-fill {
+  height: 100%; width: 0%; background: var(--accent);
+  border-radius: 1px; transition: width .4s ease;
+}
+#prog-pct {
+  font-size: 11px; color: var(--text-muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* ============================================================
+   Page-turn animation (subtle slide + fade = "leaf turn")
+   ============================================================ */
+@keyframes leafNext {
+  0%   { transform: translateX(0)    opacity: 1; }
+  0%   { transform: translateX(0);    opacity: 1; }
+  30%  { transform: translateX(-20px); opacity: 0; }
+  31%  { transform: translateX(20px);  opacity: 0; }
+  100% { transform: translateX(0);    opacity: 1; }
+}
+@keyframes leafPrev {
+  0%   { transform: translateX(0);    opacity: 1; }
+  30%  { transform: translateX(20px);  opacity: 0; }
+  31%  { transform: translateX(-20px); opacity: 0; }
+  100% { transform: translateX(0);    opacity: 1; }
+}
+.anim-next { animation: leafNext .30s cubic-bezier(.4,0,.2,1); }
+.anim-prev { animation: leafPrev .30s cubic-bezier(.4,0,.2,1); }
+
+/* ============================================================
+   Side Panels
+   ============================================================ */
+.panel {
+  position: fixed; top:0; bottom:0; width:290px;
+  background: var(--panel-bg);
+  transition: transform .28s cubic-bezier(.4,0,.2,1), background .3s;
+  z-index: 120; display:flex; flex-direction:column;
+}
+#toc-panel  { left:0;  border-right:1px solid var(--border);
+              transform:translateX(-100%); box-shadow:4px 0 30px var(--shadow); }
+#note-panel { right:0; border-left:1px solid var(--border);
+              transform:translateX(100%);  box-shadow:-4px 0 30px var(--shadow); }
+#toc-panel.open  { transform:translateX(0); }
+#note-panel.open { transform:translateX(0); }
+
+.panel-head {
+  height:50px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 18px; border-bottom:1px solid var(--border);
+}
+.panel-label {
+  font-size:11px; font-weight:500; letter-spacing:.8px;
+  text-transform:uppercase; color:var(--text-muted);
+}
+.panel-x {
+  width:26px; height:26px; border-radius:6px;
+  border:none; background:transparent; color:var(--text);
+  display:flex; align-items:center; justify-content:center;
+  font-size:14px; opacity:.42;
+  transition:opacity .15s, background .15s;
+}
+.panel-x:hover { opacity:1; background:var(--hover); }
+
+.panel-body { flex:1; overflow-y:auto; padding:8px 0; }
+.panel-body::-webkit-scrollbar { width:3px; }
+.panel-body::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+
+/* TOC rows */
+.toc-row {
+  display:block; width:100%; text-align:left;
+  border:none; background:none; color:var(--text);
+  font-family:'Spectral','Noto Serif SC',serif;
+  font-size:14px; font-weight:400; line-height:1.45;
+  padding:9px 18px; cursor:pointer; transition:background .12s;
+}
+.toc-row:hover { background:var(--hover); }
+.toc-row.cur { color:var(--accent); }
+.toc-row[data-d="2"] { padding-left:32px; font-size:13px; opacity:.82; }
+.toc-row[data-d="3"] { padding-left:46px; font-size:12px; opacity:.65; }
+
+/* Note rows */
+.note-row {
+  padding:14px 18px; border-bottom:1px solid var(--border);
+  transition:background .12s;
+}
+.note-row:hover { background:var(--hover); }
+.note-quote {
+  font-family:'Spectral','Noto Serif SC',serif;
+  font-size:13px; line-height:1.55; color:var(--text);
+  padding-left:9px; position:relative; margin-bottom:5px;
+}
+.note-quote::before {
+  content:''; position:absolute; left:0; top:2px; bottom:2px;
+  width:2.5px; border-radius:1.5px;
+}
+[data-c="yellow"] .note-quote::before { background:#D4A017; }
+[data-c="green"]  .note-quote::before { background:#3A9C5F; }
+[data-c="blue"]   .note-quote::before { background:#4A78C4; }
+[data-c="pink"]   .note-quote::before { background:#C8455A; }
+.note-body { font-size:12px; color:var(--text-muted); line-height:1.5; }
+.note-acts { display:flex; gap:4px; margin-top:8px; }
+.note-act {
+  font-size:11px; padding:2px 8px; border-radius:5px;
+  border:none; background:transparent; color:var(--text-muted);
+  transition:all .12s;
+}
+.note-act:hover { background:var(--hover); color:var(--text); }
+.note-act.del:hover { color:#FF3B30; }
+.panel-empty {
+  padding:36px 18px; text-align:center;
+  font-size:13px; color:var(--text-muted); line-height:1.7;
+}
+
+/* ============================================================
+   Selection toolbar (highlight colors)
+   ============================================================ */
+#sel-bar {
+  position:fixed; z-index:300;
+  display:none; align-items:center; gap:3px;
+  background:var(--bar-bg);
+  border:1px solid var(--border); border-radius:10px;
+  padding:5px 7px;
+  box-shadow:0 6px 24px var(--shadow);
+  backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+  transition:background .3s;
+}
+#sel-bar.on { display:flex; }
+.sel-dot {
+  width:20px; height:20px; border-radius:50%;
+  border:2px solid rgba(255,255,255,.5);
+  transition:transform .12s, border-color .12s;
+}
+.sel-dot:hover { transform:scale(1.2); border-color:rgba(255,255,255,.9); }
+.sel-dot[data-c="yellow"] { background:#D4A017; }
+.sel-dot[data-c="green"]  { background:#3A9C5F; }
+.sel-dot[data-c="blue"]   { background:#4A78C4; }
+.sel-dot[data-c="pink"]   { background:#C8455A; }
+.sel-sep { width:1px; height:16px; background:var(--border); margin:0 3px; }
+.sel-note-btn {
+  font-size:12px; padding:1px 8px; border-radius:6px;
+  border:none; background:transparent; color:var(--text);
+  transition:background .12s;
+}
+.sel-note-btn:hover { background:var(--hover); }
+
+/* ============================================================
+   Note editor modal
+   ============================================================ */
+#note-modal {
+  position:fixed; inset:0; z-index:400;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(0,0,0,.38);
+  backdrop-filter:blur(5px); -webkit-backdrop-filter:blur(5px);
+  opacity:0; pointer-events:none; transition:opacity .2s;
+}
+#note-modal.on { opacity:1; pointer-events:all; }
+.note-card {
+  background:var(--panel-bg); border-radius:18px;
+  width:370px; max-width:92vw; padding:22px;
+  box-shadow:0 24px 64px rgba(0,0,0,.22);
+  transition:background .3s;
+}
+.note-card-quote {
+  font-family:'Spectral','Noto Serif SC',serif;
+  font-size:13.5px; line-height:1.6; color:var(--text); opacity:.72;
+  margin-bottom:14px; padding-left:11px;
+  border-left:2.5px solid var(--accent);
+}
+.note-ta {
+  width:100%; min-height:96px;
+  background:rgba(128,128,128,.07);
+  border:1.5px solid var(--border); border-radius:10px;
+  padding:11px 13px; resize:vertical;
+  font-size:14px; color:var(--text); outline:none;
+  transition:border-color .15s;
+}
+.note-ta:focus { border-color:var(--accent); }
+.note-ta::placeholder { color:var(--text-muted); }
+.note-card-acts { display:flex; justify-content:flex-end; gap:7px; margin-top:11px; }
+.nc-btn { padding:7px 17px; border-radius:8px; border:none; font-size:13.5px; transition:all .15s; }
+.nc-btn.cancel { background:transparent; color:var(--text-muted); }
+.nc-btn.cancel:hover { background:var(--hover); }
+.nc-btn.save { background:var(--accent); color:#fff; }
+.nc-btn.save:hover { opacity:.85; }
+
+/* ============================================================
+   Theme popup
+   ============================================================ */
+#theme-pop {
+  position:absolute; top:50px; right:12px;
+  background:var(--panel-bg);
+  border:1px solid var(--border); border-radius:12px; padding:6px;
+  box-shadow:0 8px 28px var(--shadow);
+  display:none; flex-direction:column; gap:1px;
+  z-index:80; min-width:130px;
+  backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+  transition:background .3s;
+}
+#theme-pop.on { display:flex; }
+.tp-opt {
+  display:flex; align-items:center; gap:9px;
+  padding:7px 11px; border-radius:7px;
+  border:none; background:none; color:var(--text);
+  font-size:13px; width:100%; text-align:left; transition:background .12s;
+}
+.tp-opt:hover { background:var(--hover); }
+.tp-opt.cur { color:var(--accent); }
+.tp-sw {
+  width:17px; height:17px; border-radius:50%; flex-shrink:0;
+  border:1px solid rgba(0,0,0,.12);
+}
+
+/* ============================================================
+   Overlay
+   ============================================================ */
+#overlay { position:fixed; inset:0; z-index:100; display:none; }
+#overlay.on { display:block; }
+
+/* ============================================================
+   Misc
+   ============================================================ */
+* { scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+
+</style>
+</head>
+<body data-theme="sepia">
+
+<!-- =================== DROP ZONE / SPLASH =================== -->
+<div id="drop-zone">
+
+  <!-- Flamingo mark (no background, uses accent color via currentColor) -->
+  <svg class="dz-flamingo flamingo-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M50 90 L24 92 L26 96 L50 94 Z" fill="currentColor" opacity="0.55"/>
+    <path d="M50 90 L76 92 L74 96 L50 94 Z" fill="currentColor" opacity="0.42"/>
+    <path d="M43 58 L47 72 L36 90 L32 92" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M39 59 L41 74 L48 90 L52 92" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M20 45 L10 38 L19 51 Z" fill="currentColor"/>
+    <path d="M18 50 C16 42 24 37 35 37 C48 37 57 43 55 52 C54 60 45 63 35 62 C26 61 20 58 18 50 Z" fill="currentColor"/>
+    <path d="M52 44 C49 30 55 20 62 12" fill="none" stroke="currentColor" stroke-width="4.6" stroke-linecap="round"/>
+    <circle cx="63" cy="11" r="3.8" fill="currentColor"/>
+    <path d="M65 9 L72 11 L70 15 L66 14 Z" fill="currentColor" opacity="0.55"/>
+  </svg>
+
+  <div class="dz-wordmark">AtomBook</div>
+  <div class="dz-sub">Drop an EPUB to begin reading</div>
+  <button class="dz-btn" id="open-btn">Open File…</button>
+
+  <div class="dz-themes">
+    <div class="dz-dot" data-t="day"   title="Day"></div>
+    <div class="dz-dot on" data-t="sepia" title="Sepia"></div>
+    <div class="dz-dot" data-t="night" title="Night"></div>
+  </div>
+
+  <div class="dz-sync">
+    <div class="sync-dot" id="sync-dot"></div>
+    <span id="sync-label">No sync folder</span>
+    <button class="dz-sync-btn" id="sync-btn">Connect…</button>
+  </div>
+</div>
+
+<!-- =================== READER =================== -->
+<div id="reader">
+
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <div class="tb-left">
+      <button class="tb-btn" id="toc-btn" title="Table of contents">
+        <svg width="15" height="12" viewBox="0 0 15 12" fill="currentColor">
+          <rect y="0"  width="15" height="1.8" rx=".9"/>
+          <rect y="5"  width="10" height="1.8" rx=".9"/>
+          <rect y="10" width="12" height="1.8" rx=".9"/>
+        </svg>
+      </button>
+      <!-- Home: small flamingo mark -->
+      <button class="tb-btn" id="home-btn" title="Close book">
+        <svg class="tb-flamingo" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+          <path d="M20 45 L10 38 L19 51 Z"/>
+          <path d="M18 50 C16 42 24 37 35 37 C48 37 57 43 55 52 C54 60 45 63 35 62 C26 61 20 58 18 50 Z"/>
+          <path d="M52 44 C49 30 55 20 62 12" fill="none" stroke="currentColor" stroke-width="4.6" stroke-linecap="round"/>
+          <circle cx="63" cy="11" r="3.8"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="tb-center">
+      <div class="tb-title" id="tb-title">—</div>
+    </div>
+
+    <div class="tb-right">
+      <button class="tb-btn" id="fs-down" title="Smaller" style="font-size:11px;font-weight:500;letter-spacing:-.2px">A−</button>
+      <div class="fs-num" id="fs-num">18</div>
+      <button class="tb-btn" id="fs-up"   title="Larger"  style="font-size:13px;font-weight:500;">A+</button>
+      <div class="tb-sep"></div>
+      <button class="tb-btn" id="theme-btn" title="Appearance">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+          <circle cx="7.5" cy="7.5" r="6" stroke="currentColor" stroke-width="1.5"/>
+          <line x1="7.5" y1="1.5" x2="7.5" y2="13.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M7.5 1.5 A6 6 0 0 1 7.5 13.5 Z" fill="currentColor"/>
+        </svg>
+      </button>
+      <button class="tb-btn" id="notes-btn" title="Highlights &amp; notes">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+          <path d="M1 1h12v9H8.5L6 13V10H1V1Z"/>
+        </svg>
+      </button>
+
+      <!-- Theme popup -->
+      <div id="theme-pop">
+        <button class="tp-opt" data-t="day">
+          <div class="tp-sw" style="background:#FBF7F0"></div>Day
+        </button>
+        <button class="tp-opt cur" data-t="sepia">
+          <div class="tp-sw" style="background:#F5E9D5"></div>Sepia
+        </button>
+        <button class="tp-opt" data-t="night">
+          <div class="tp-sw" style="background:#1C1C1E;border-color:rgba(255,255,255,.15)"></div>Night
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reader area -->
+  <div id="reader-area">
+    <button class="nav-btn" id="prev-btn" title="Previous">
+      <svg class="nav-chev" viewBox="0 0 8 16" fill="none"
+           stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="7,1 1,8 7,15"/>
+      </svg>
+    </button>
+    <div id="epub-viewer"></div>
+    <button class="nav-btn" id="next-btn" title="Next">
+      <svg class="nav-chev" viewBox="0 0 8 16" fill="none"
+           stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="1,1 7,8 1,15"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Bottom bar -->
+  <div id="bottom-bar">
+    <div id="ch-title">—</div>
+    <div class="prog-row">
+      <div id="prog-track"><div id="prog-fill"></div></div>
+      <div id="prog-pct">0%</div>
+    </div>
+  </div>
+</div>
+
+<!-- =================== OVERLAY =================== -->
+<div id="overlay"></div>
+
+<!-- =================== PANELS =================== -->
+<div class="panel" id="toc-panel">
+  <div class="panel-head">
+    <span class="panel-label">Contents</span>
+    <button class="panel-x" id="toc-x">✕</button>
+  </div>
+  <div class="panel-body" id="toc-body">
+    <div class="panel-empty">Open a book to see its chapters.</div>
+  </div>
+</div>
+
+<div class="panel" id="note-panel">
+  <div class="panel-head">
+    <span class="panel-label">Highlights</span>
+    <button class="panel-x" id="note-x">✕</button>
+  </div>
+  <div class="panel-body" id="note-body">
+    <div class="panel-empty">Select text while reading<br>to highlight and annotate.</div>
+  </div>
+</div>
+
+<!-- =================== SELECTION BAR =================== -->
+<div id="sel-bar">
+  <button class="sel-dot" data-c="yellow" title="Amber"></button>
+  <button class="sel-dot" data-c="green"  title="Green"></button>
+  <button class="sel-dot" data-c="blue"   title="Blue"></button>
+  <button class="sel-dot" data-c="pink"   title="Rose"></button>
+  <div class="sel-sep"></div>
+  <button class="sel-note-btn" id="sel-note">Note</button>
+</div>
+
+<!-- =================== NOTE MODAL =================== -->
+<div id="note-modal">
+  <div class="note-card">
+    <div class="note-card-quote" id="nm-quote"></div>
+    <textarea class="note-ta" id="nm-ta" placeholder="Add a note…"></textarea>
+    <div class="note-card-acts">
+      <button class="nc-btn cancel" id="nm-cancel">Cancel</button>
+      <button class="nc-btn save"   id="nm-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden file input -->
+<input type="file" id="file-in" accept=".epub" style="display:none">
+
+<!-- =================== JAVASCRIPT =================== -->
+<script>
+'use strict';
+
+/* ============================================================
+   PWA: inject manifest + register service worker (blob URLs)
+   Works when served over HTTPS (GitHub Pages, etc.)
+   ============================================================ */
+(function setupPWA() {
+  const iconSVG = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100" height="100" rx="22" fill="#00ADCE"/>
+    <path d="M50 90 L24 92 L26 96 L50 94 Z" fill="#F2B5A0"/>
+    <path d="M50 90 L76 92 L74 96 L50 94 Z" fill="#F2B5A0" opacity="0.78"/>
+    <path d="M43 58 L47 72 L36 90 L32 92" fill="none" stroke="#FFFFFF" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M39 59 L41 74 L48 90 L52 92" fill="none" stroke="#FFFFFF" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M20 45 L10 38 L19 51 Z" fill="#FFFFFF"/>
+    <path d="M18 50 C16 42 24 37 35 37 C48 37 57 43 55 52 C54 60 45 63 35 62 C26 61 20 58 18 50 Z" fill="#FFFFFF"/>
+    <path d="M52 44 C49 30 55 20 62 12" fill="none" stroke="#FFFFFF" stroke-width="4.6" stroke-linecap="round"/>
+    <circle cx="63" cy="11" r="3.8" fill="#FFFFFF"/>
+    <path d="M65 9 L72 11 L70 15 L66 14 Z" fill="#F2B5A0"/>
+  </svg>`;
+
+  const manifest = {
+    name: 'AtomBook',
+    short_name: 'AtomBook',
+    description: 'Minimal EPUB reader. Part of the Atom ecosystem.',
+    start_url: './',
+    scope: './',
+    display: 'standalone',
+    orientation: 'any',
+    background_color: '#F5E9D5',
+    theme_color: '#00ADCE',
+    icons: [
+      { src: 'data:image/svg+xml,' + encodeURIComponent(iconSVG),
+        sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+      { src: 'data:image/svg+xml,' + encodeURIComponent(iconSVG),
+        sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' }
+    ]
+  };
+
+  try {
+    const mBlob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+    const mURL  = URL.createObjectURL(mBlob);
+    const mLink = document.createElement('link');
+    mLink.rel = 'manifest'; mLink.href = mURL;
+    document.head.appendChild(mLink);
+  } catch(e) { console.warn('manifest:', e); }
+
+  if ('serviceWorker' in navigator) {
+    const sw = `
+const CACHE='atombook-v1';
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+self.addEventListener('fetch', e => {
+  e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+});`;
+    try {
+      const swBlob = new Blob([sw], { type: 'text/javascript' });
+      const swURL  = URL.createObjectURL(swBlob);
+      navigator.serviceWorker.register(swURL, { scope: './' }).catch(console.warn);
+    } catch(e) { console.warn('sw:', e); }
+  }
+})();
+
+/* ============================================================
+   State
+   ============================================================ */
+let book      = null;
+let rend      = null;
+let bookId    = null;
+let allData   = { v: 1, books: {} };
+let syncDir   = null;
+let theme     = 'sepia';
+let fontSize  = 18;
+let animating = false;
+
+let selCfi    = null;
+let selText   = null;
+let pendingHl = null;
+let nmCb      = null;
+
+const HL_FILLS = {
+  yellow: 'rgba(212,160,23,.38)',
+  green:  'rgba(58,156,95,.36)',
+  blue:   'rgba(74,120,196,.36)',
+  pink:   'rgba(200,69,90,.34)',
+};
+
+/* ============================================================
+   DOM
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const dropZone   = $('drop-zone');
+const reader     = $('reader');
+const epubViewer = $('epub-viewer');
+const selBar     = $('sel-bar');
+const noteModal  = $('note-modal');
+const overlay    = $('overlay');
+
+/* ============================================================
+   IndexedDB
+   ============================================================ */
+function openIDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('atombook_v1', 1);
+    r.onupgradeneeded = e => e.target.result.createObjectStore('kv');
+    r.onsuccess = e => res(e.target.result);
+    r.onerror   = rej;
+  });
+}
+async function idbGet(k) {
+  const db = await openIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readonly');
+    const r  = tx.objectStore('kv').get(k);
+    r.onsuccess = e => res(e.target.result);
+    r.onerror   = rej;
+  });
+}
+async function idbSet(k, v) {
+  const db = await openIDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').put(v, k);
+    tx.oncomplete = res; tx.onerror = rej;
+  });
+}
+
+/* ============================================================
+   Sync folder (File System Access API)
+   ============================================================ */
+async function initSync() {
+  try {
+    const h = await idbGet('syncDir');
+    if (!h) return;
+    const perm = await h.queryPermission({ mode: 'readwrite' });
+    if (perm === 'granted') {
+      syncDir = h; setSyncUI(true); await loadData();
+    } else {
+      syncDir = h; setSyncUI(false, 'Re-connect sync folder');
+    }
+  } catch(_) {}
+}
+async function connectSync() {
+  try {
+    const h = await window.showDirectoryPicker({ mode: 'readwrite' });
+    syncDir = h; await idbSet('syncDir', h);
+    setSyncUI(true); await loadData();
+  } catch(e) { if (e.name !== 'AbortError') console.warn(e); }
+}
+function setSyncUI(ok, msg) {
+  $('sync-dot').className = 'sync-dot' + (ok ? ' on' : '');
+  $('sync-label').textContent = ok ? `Syncing · ${syncDir.name}` : (msg || 'No sync folder');
+}
+async function loadData() {
+  if (!syncDir) return;
+  try {
+    const fh   = await syncDir.getFileHandle('atombook.json', { create: true });
+    const file = await fh.getFile();
+    const txt  = await file.text();
+    if (txt.trim()) allData = JSON.parse(txt);
+    if (!allData.books) allData.books = {};
+  } catch(e) { console.warn('loadData', e); }
+}
+async function saveData() {
+  if (!syncDir) return;
+  try {
+    const perm = await syncDir.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') return;
+    const fh = await syncDir.getFileHandle('atombook.json', { create: true });
+    const wr = await fh.createWritable();
+    await wr.write(JSON.stringify(allData, null, 2));
+    await wr.close();
+  } catch(e) { console.warn('saveData', e); }
+}
+function bookData() {
+  if (!bookId) return null;
+  if (!allData.books[bookId])
+    allData.books[bookId] = { title: '', author: '', progress: null, hl: [] };
+  return allData.books[bookId];
+}
+
+/* ============================================================
+   Hash
+   ============================================================ */
+function hash(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
+  return h.toString(36);
+}
+
+/* ============================================================
+   Theme
+   ============================================================ */
+const THEMES = {
+  day:   { body: { background: '#FBF7F0 !important', color: '#1A1A1A !important' } },
+  sepia: { body: { background: '#F5E9D5 !important', color: '#3B2E1E !important' } },
+  night: { body: { background: '#1C1C1E !important', color: '#E5E0D8 !important' } },
+};
+function setTheme(t) {
+  theme = t;
+  document.body.setAttribute('data-theme', t);
+  document.querySelectorAll('.dz-dot').forEach(d => d.classList.toggle('on', d.dataset.t === t));
+  document.querySelectorAll('.tp-opt').forEach(o => o.classList.toggle('cur', o.dataset.t === t));
+  const mc = { day:'#6B5340', sepia:'#8B5E3C', night:'#C8A87A' };
+  document.querySelector('#meta-theme').content = mc[t] || mc.sepia;
+  if (rend) rend.themes.select(t);
+}
+
+/* ============================================================
+   Font size
+   ============================================================ */
+function setFS(n) {
+  fontSize = Math.max(12, Math.min(30, n));
+  $('fs-num').textContent = fontSize;
+  if (rend) rend.themes.fontSize(fontSize + 'px');
+}
+
+/* ============================================================
+   Open book
+   ============================================================ */
+async function openBook(buf, filename) {
+  if (rend) { rend.destroy(); rend = null; }
+  if (book) { book.destroy(); book = null; }
+  epubViewer.innerHTML = '';
+
+  book = ePub(buf);
+  await book.ready;
+
+  const meta   = book.packaging.metadata;
+  const title  = meta.title   || filename.replace(/\.epub$/i, '');
+  const author = meta.creator || '';
+
+  bookId = hash(title + author);
+  const bd = bookData();
+  bd.title = title; bd.author = author;
+
+  $('tb-title').textContent = title;
+
+  const wide = window.innerWidth >= 860;
+  rend = book.renderTo('epub-viewer', {
+    width:          epubViewer.clientWidth,
+    height:         epubViewer.clientHeight,
+    spread:         wide ? 'always' : 'none',
+    minSpreadWidth: 0,
+    flow:           'paginated',
+  });
+  epubViewer.classList.toggle('spread', wide);
+
+  Object.entries(THEMES).forEach(([n, s]) => rend.themes.register(n, s));
+  rend.themes.select(theme);
+  rend.themes.fontSize(fontSize + 'px');
+
+  rend.hooks.content.register(contents => {
+    const doc = contents.document;
+    const lnk = doc.createElement('link');
+    lnk.rel = 'stylesheet';
+    lnk.href = 'https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Noto+Serif+SC:wght@300;400;500&display=swap';
+    doc.head.appendChild(lnk);
+    const st = doc.createElement('style');
+    st.textContent = `
+      body { font-family:'Spectral','Noto Serif SC',Georgia,serif !important;
+             line-height:1.80 !important; -webkit-font-smoothing:antialiased; }
+      p  { text-indent:1.5em; margin-bottom:0 !important; margin-top:0 !important; }
+      h1,h2,h3,h4,h5,h6 {
+        font-family:'Spectral','Noto Serif SC',serif !important;
+        line-height:1.3 !important; text-indent:0 !important; }
+      a  { color:inherit !important; }
+    `;
+    doc.head.appendChild(st);
+  });
+
+  rend.on('locationChanged', loc => onLocChanged(loc));
+
+  rend.on('selected', (cfiRange, contents) => {
+    const sel = contents.window.getSelection();
+    if (!sel || sel.isCollapsed) return;
+    const txt = sel.toString().trim();
+    if (txt.length < 2) return;
+    selCfi  = cfiRange;
+    selText = txt;
+    try {
+      const range  = sel.getRangeAt(0);
+      const rect   = range.getBoundingClientRect();
+      const iframe = epubViewer.querySelector('iframe');
+      const iRect  = iframe ? iframe.getBoundingClientRect() : { left: 0, top: 0 };
+      const cx = iRect.left + rect.left + rect.width / 2;
+      const cy = iRect.top  + rect.top  - 52;
+      selBar.style.left = Math.max(8, Math.min(cx - 115, window.innerWidth - 248)) + 'px';
+      selBar.style.top  = Math.max(8, cy) + 'px';
+      selBar.classList.add('on');
+    } catch(_) {}
+  });
+
+  rend.on('deselected', () => setTimeout(hideSelBar, 180));
+
+  const start = bookData().progress?.cfi;
+  await rend.display(start || undefined);
+
+  buildTOC();
+  restoreHighlights();
+
+  dropZone.style.display = 'none';
+  reader.classList.add('on');
+}
+
+/* ============================================================
+   Navigation + page-turn animation
+   ============================================================ */
+function go(dir) {
+  if (animating || !rend) return;
+  animating = true;
+  const cls = dir === 'next' ? 'anim-next' : 'anim-prev';
+  epubViewer.classList.add(cls);
+  epubViewer.addEventListener('animationend', () => {
+    epubViewer.classList.remove(cls);
+    animating = false;
+  }, { once: true });
+  dir === 'next' ? rend.next() : rend.prev();
+}
+
+/* ============================================================
+   Progress
+   ============================================================ */
+async function onLocChanged(loc) {
+  if (!loc || !book) return;
+  const s  = loc.start;
+  const bd = bookData();
+  if (bd) bd.progress = { cfi: s.cfi, pct: s.percentage, ts: Date.now() };
+  const pct = Math.round((s.percentage || 0) * 100);
+  $('prog-fill').style.width = pct + '%';
+  $('prog-pct').textContent  = pct + '%';
+  try {
+    const nav  = book.navigation;
+    const item = nav && nav.get(s.href);
+    $('ch-title').textContent = item ? (item.label?.trim() || '—') : '—';
+  } catch(_) {}
+  await saveData();
+}
+
+/* ============================================================
+   TOC
+   ============================================================ */
+async function buildTOC() {
+  const nav  = book.navigation;
+  const body = $('toc-body');
+  if (!nav?.toc?.length) {
+    body.innerHTML = '<div class="panel-empty">No table of contents.</div>'; return;
+  }
+  body.innerHTML = '';
+  function walk(items, depth) {
+    items.forEach(item => {
+      const btn = document.createElement('button');
+      btn.className = 'toc-row'; btn.dataset.d = depth;
+      btn.textContent = item.label?.trim() || 'Untitled';
+      btn.onclick = () => { rend.display(item.href); closeAll(); };
+      body.appendChild(btn);
+      if (item.subitems?.length) walk(item.subitems, depth + 1);
+    });
+  }
+  walk(nav.toc, 1);
+}
+
+/* ============================================================
+   Highlights
+   ============================================================ */
+function restoreHighlights() {
+  const bd = bookData();
+  if (!bd?.hl) return;
+  bd.hl.forEach(h => applyHL(h));
+  renderNotes();
+}
+function applyHL(h) {
+  try {
+    rend.annotations.highlight(h.cfi, {}, () => {}, 'ab-' + h.id, {
+      fill: HL_FILLS[h.color] || HL_FILLS.yellow,
+      'fill-opacity': '1', 'mix-blend-mode': 'multiply',
+    });
+  } catch(_) {}
+}
+function addHighlight(cfi, text, color, note = '') {
+  const bd = bookData(); if (!bd) return;
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const h  = { id, cfi, text, color, note, ts: Date.now() };
+  bd.hl.push(h); applyHL(h); renderNotes(); saveData();
+}
+function delHL(id) {
+  const bd = bookData(); if (!bd) return;
+  const idx = bd.hl.findIndex(h => h.id === id); if (idx === -1) return;
+  try { rend.annotations.remove(bd.hl[idx].cfi, 'highlight'); } catch(_) {}
+  bd.hl.splice(idx, 1); renderNotes(); saveData();
+}
+function editNote(id) {
+  const bd = bookData(); const h = bd?.hl.find(x => x.id === id); if (!h) return;
+  openNoteModal(h.text, h.note || '', note => { h.note = note; renderNotes(); saveData(); });
+}
+function renderNotes() {
+  const bd   = bookData();
+  const body = $('note-body');
+  if (!bd?.hl?.length) {
+    body.innerHTML = '<div class="panel-empty">Select text while reading<br>to highlight and annotate.</div>';
+    return;
+  }
+  body.innerHTML = '';
+  [...bd.hl].reverse().forEach(h => {
+    const d = document.createElement('div');
+    d.className = 'note-row'; d.dataset.c = h.color;
+    d.innerHTML = `
+      <div class="note-quote">${esc(h.text.slice(0,120))}${h.text.length>120?'…':''}</div>
+      ${h.note?`<div class="note-body">${esc(h.note)}</div>`:''}
+      <div class="note-acts">
+        <button class="note-act" data-a="go"   data-id="${h.id}">Go to</button>
+        <button class="note-act" data-a="edit" data-id="${h.id}">${h.note?'Edit note':'Add note'}</button>
+        <button class="note-act del" data-a="del" data-id="${h.id}">Delete</button>
+      </div>`;
+    body.appendChild(d);
+  });
+  body.querySelectorAll('[data-a]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.id, a = btn.dataset.a;
+      const bd2 = bookData(); const h2 = bd2?.hl.find(x => x.id === id);
+      if (a === 'go'   && h2) { rend.display(h2.cfi); closeAll(); }
+      if (a === 'edit')       { editNote(id); }
+      if (a === 'del'  && confirm('Delete this highlight?')) delHL(id);
+    };
+  });
+}
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ============================================================
+   Selection bar
+   ============================================================ */
+function hideSelBar() { selBar.classList.remove('on'); selCfi=null; selText=null; }
+
+document.querySelectorAll('.sel-dot').forEach(btn => {
+  btn.onclick = () => {
+    if (selCfi && selText) addHighlight(selCfi, selText, btn.dataset.c);
+    hideSelBar();
+  };
+});
+$('sel-note').onclick = () => {
+  if (!selText) return;
+  pendingHl = { cfi: selCfi, text: selText, color: 'yellow' };
+  hideSelBar();
+  openNoteModal(selText, '', note => {
+    if (pendingHl) { addHighlight(pendingHl.cfi, pendingHl.text, pendingHl.color, note); pendingHl=null; }
+  });
+};
+
+/* ============================================================
+   Note modal
+   ============================================================ */
+function openNoteModal(quote, existing, cb) {
+  $('nm-quote').textContent = quote.slice(0, 140) + (quote.length > 140 ? '…' : '');
+  $('nm-ta').value = existing || '';
+  nmCb = cb;
+  noteModal.classList.add('on');
+  setTimeout(() => $('nm-ta').focus(), 60);
+}
+function closeNoteModal() { noteModal.classList.remove('on'); nmCb=null; pendingHl=null; }
+$('nm-save').onclick   = () => { if (nmCb) nmCb($('nm-ta').value.trim()); closeNoteModal(); };
+$('nm-cancel').onclick = closeNoteModal;
+noteModal.onclick = e => { if (e.target === noteModal) closeNoteModal(); };
+
+/* ============================================================
+   Panels
+   ============================================================ */
+let tocOpen=false, notesOpen=false, themeOpen=false;
+
+function closeAll() {
+  tocOpen=notesOpen=themeOpen=false;
+  $('toc-panel').classList.remove('open');
+  $('note-panel').classList.remove('open');
+  $('theme-pop').classList.remove('on');
+  overlay.classList.remove('on');
+  $('toc-btn').classList.remove('lit');
+  $('notes-btn').classList.remove('lit');
+  $('theme-btn').classList.remove('lit');
+}
+function toggleTOC() {
+  tocOpen=!tocOpen; notesOpen=false; themeOpen=false;
+  $('toc-panel').classList.toggle('open', tocOpen);
+  $('note-panel').classList.remove('open');
+  $('theme-pop').classList.remove('on');
+  overlay.classList.toggle('on', tocOpen);
+  $('toc-btn').classList.toggle('lit', tocOpen);
+  $('notes-btn').classList.remove('lit');
+  $('theme-btn').classList.remove('lit');
+}
+function toggleNotes() {
+  notesOpen=!notesOpen; tocOpen=false; themeOpen=false;
+  renderNotes();
+  $('note-panel').classList.toggle('open', notesOpen);
+  $('toc-panel').classList.remove('open');
+  $('theme-pop').classList.remove('on');
+  overlay.classList.toggle('on', notesOpen);
+  $('notes-btn').classList.toggle('lit', notesOpen);
+  $('toc-btn').classList.remove('lit');
+  $('theme-btn').classList.remove('lit');
+}
+function toggleThemePop(e) {
+  e.stopPropagation();
+  themeOpen=!themeOpen;
+  $('theme-pop').classList.toggle('on', themeOpen);
+  $('theme-btn').classList.toggle('lit', themeOpen);
+}
+
+/* ============================================================
+   Event listeners
+   ============================================================ */
+const fileIn = $('file-in');
+fileIn.onchange = e => { const f=e.target.files[0]; if(f) loadFile(f); fileIn.value=''; };
+$('open-btn').onclick = () => fileIn.click();
+
+[dropZone, document].forEach(el => {
+  el.addEventListener('dragover', e => { e.preventDefault(); if(el===dropZone) dropZone.classList.add('drag-over'); });
+  el.addEventListener('dragleave', ()=> dropZone.classList.remove('drag-over'));
+  el.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('drag-over');
+    const f=e.dataTransfer.files[0];
+    if (f?.name.endsWith('.epub')) loadFile(f);
+  });
+});
+
+async function loadFile(f) {
+  const buf = await f.arrayBuffer();
+  await openBook(buf, f.name);
+}
+
+$('sync-btn').onclick = connectSync;
+
+document.querySelectorAll('.dz-dot').forEach(d => d.onclick=()=>setTheme(d.dataset.t));
+document.querySelectorAll('.tp-opt').forEach(o =>
+  o.onclick=()=>{ setTheme(o.dataset.t); themeOpen=false; $('theme-pop').classList.remove('on'); $('theme-btn').classList.remove('lit'); }
+);
+
+$('toc-btn').onclick   = toggleTOC;
+$('notes-btn').onclick = toggleNotes;
+$('theme-btn').onclick = toggleThemePop;
+$('toc-x').onclick     = closeAll;
+$('note-x').onclick    = closeAll;
+overlay.onclick        = closeAll;
+
+$('home-btn').onclick = () => {
+  closeAll();
+  reader.classList.remove('on');
+  dropZone.style.display = 'flex';
+  if (rend) { rend.destroy(); rend=null; }
+  if (book) { book.destroy(); book=null; }
+  epubViewer.innerHTML='';
+  $('tb-title').textContent='—'; $('ch-title').textContent='—';
+  $('prog-fill').style.width='0%'; $('prog-pct').textContent='0%';
+};
+
+$('fs-down').onclick = ()=>setFS(fontSize-1);
+$('fs-up').onclick   = ()=>setFS(fontSize+1);
+$('prev-btn').onclick= ()=>go('prev');
+$('next-btn').onclick= ()=>go('next');
+
+document.addEventListener('keydown', e => {
+  if (['INPUT','TEXTAREA'].includes(e.target.tagName)) return;
+  if (e.key==='ArrowRight'||e.key==='ArrowDown'||e.key===' ') { e.preventDefault(); go('next'); }
+  if (e.key==='ArrowLeft' ||e.key==='ArrowUp')                { e.preventDefault(); go('prev'); }
+  if (e.key==='Escape') closeAll();
+});
+
+document.addEventListener('click', e => {
+  if (themeOpen && !$('theme-pop').contains(e.target) && e.target!==$('theme-btn')) {
+    themeOpen=false; $('theme-pop').classList.remove('on'); $('theme-btn').classList.remove('lit');
+  }
+});
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (!rend) return;
+    const w=epubViewer.clientWidth, h=epubViewer.clientHeight, wide=w>=860;
+    epubViewer.classList.toggle('spread', wide);
+    rend.resize(w, h);
+  }, 200);
+});
+
+/* ============================================================
+   Init
+   ============================================================ */
+(async () => {
+  await initSync();
+  document.querySelectorAll('.dz-dot').forEach(d => d.classList.toggle('on', d.dataset.t===theme));
+})();
+</script>
+</body>
+</html>
