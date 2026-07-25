@@ -698,24 +698,28 @@ function chapterNumFromLabel(label){
   if(m)return parseInt(m[1],10);
   return null;
 }
+function normHref(h){
+  try{h=decodeURIComponent(h);}catch(_){}
+  return h.split('#')[0].split('?')[0].split('/').pop().toLowerCase();
+}
 function buildChapterMarkers(){
   chapterMarkers=[];
   const spItems=book?.spine?.items||[];
-  if(!book?.navigation?.toc||!spItems.length)return;
+  if(!spItems.length)return;
+  if(!book?.navigation?.toc?.length){buildSpineFallbackMarkers(spItems);return;}
   const items=[];
   function walk(t){t.forEach(i=>{items.push(i);if(i.subitems?.length)walk(i.subitems);});}
   walk(book.navigation.toc);
   items.forEach((item,idx)=>{
     try{
       const href=(item.href||'').split('#')[0];
-      const fname=href.split('/').pop();
-      /* spine.get() fails when TOC hrefs carry a different path prefix than
-         the spine's — fall back to matching on filename. */
+      /* spine.get() fails when TOC hrefs carry a different path prefix,
+         percent-encoding, or ../ segments than the spine's — compare on the
+         normalized basename instead. */
       let si=book.spine.get(href);
-      if(!si&&fname)si=spItems.find(sp=>{
-        const sh=sp.href||sp.url||sp.canonical||'';
-        return sh===href||sh.endsWith('/'+fname)||sh===fname;
-      });
+      const key=normHref(href);
+      if(!si&&key)si=spItems.find(sp=>
+        normHref(sp.href||'')===key||normHref(sp.url||'')===key||normHref(sp.canonical||'')===key);
       if(!si||typeof si.index!=='number')return;
       const label=item.label?.trim()||'';
       chapterMarkers.push({spineIdx:si.index,ord:idx+1,num:chapterNumFromLabel(label),title:label});
@@ -724,6 +728,13 @@ function buildChapterMarkers(){
   chapterMarkers.sort((a,b)=>a.spineIdx-b.spineIdx);
   /* Dedup sections that host several TOC entries — keep the first. */
   chapterMarkers=chapterMarkers.filter((m,i,a)=>i===0||m.spineIdx!==a[i-1].spineIdx);
+  /* No TOC href matched any spine item — fall back to the spine itself so the
+     ring still tracks something real instead of sitting on '·'. */
+  if(!chapterMarkers.length)buildSpineFallbackMarkers(spItems);
+}
+function buildSpineFallbackMarkers(spItems){
+  chapterMarkers=spItems.map((sp,i)=>({spineIdx:typeof sp.index==='number'?sp.index:i,
+    ord:i+1,num:null,title:''}));
 }
 const CH_CIRC=59.69; /* 2π × 9.5 */
 function updateChRing(pos){
@@ -852,8 +863,22 @@ function go(dir){
   animating=true;
   const cls=dir==='next'?'anim-next':'anim-prev';
   epubViewer.classList.add(cls);
-  epubViewer.addEventListener('animationend',()=>{epubViewer.classList.remove(cls);animating=false;},{once:true});
-  dir==='next'?rend.next():rend.prev();
+  /* Release the latch on animationend OR on a timer. Relying on the event
+     alone is a trap: miss it once (throttled tab, interrupted animation,
+     reduced-motion) and `animating` stays true, killing navigation for good. */
+  let released=false;
+  const release=()=>{
+    if(released)return;
+    released=true;clearTimeout(tid);
+    epubViewer.removeEventListener('animationend',release);
+    epubViewer.classList.remove(cls);animating=false;
+  };
+  epubViewer.addEventListener('animationend',release);
+  const tid=setTimeout(release,450);
+  /* Update the bar from the settled location — independent of the
+     'relocated' event, so a dropped event can't freeze the readout. */
+  Promise.resolve(dir==='next'?rend.next():rend.prev())
+    .then(()=>refreshProgress()).catch(()=>{});
 }
 
 /* Progress */
@@ -898,7 +923,7 @@ async function buildTOC(){
   const nav=book.navigation,body=$('toc-body');
   if(!nav?.toc?.length){body.innerHTML='<div class="panel-empty">No table of contents.</div>';return;}
   body.innerHTML='';
-  function walk(items,depth){items.forEach(item=>{const btn=document.createElement('button');btn.className='toc-row';btn.dataset.d=depth;btn.textContent=item.label?.trim()||'Untitled';btn.onclick=()=>{rend.display(item.href);closeAll();};body.appendChild(btn);if(item.subitems?.length)walk(item.subitems,depth+1);});}
+  function walk(items,depth){items.forEach(item=>{const btn=document.createElement('button');btn.className='toc-row';btn.dataset.d=depth;btn.textContent=item.label?.trim()||'Untitled';btn.onclick=()=>{Promise.resolve(rend.display(item.href)).then(()=>refreshProgress()).catch(()=>{});closeAll();};body.appendChild(btn);if(item.subitems?.length)walk(item.subitems,depth+1);});}
   walk(nav.toc,1);
 }
 
