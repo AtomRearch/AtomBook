@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="AtomBook">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#00ADCE" id="meta-theme">
+<link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><rect width='100' height='100' rx='22' fill='%2300ADCE'/><path d='M50 90 L24 92 L26 96 L50 94 Z' fill='%23F2B5A0'/><path d='M50 90 L76 92 L74 96 L50 94 Z' fill='%23F2B5A0' opacity='0.78'/><path d='M43 58 L47 72 L36 90 L32 92' fill='none' stroke='%23FFFFFF' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/><path d='M39 59 L41 74 L48 90 L52 92' fill='none' stroke='%23FFFFFF' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/><path d='M20 45 L10 38 L19 51 Z' fill='%23FFFFFF'/><path d='M18 50 C16 42 24 37 35 37 C48 37 57 43 55 52 C54 60 45 63 35 62 C26 61 20 58 18 50 Z' fill='%23FFFFFF'/><path d='M52 44 C49 30 55 20 62 12' fill='none' stroke='%23FFFFFF' stroke-width='4.6' stroke-linecap='round'/><circle cx='63' cy='11' r='3.8' fill='%23FFFFFF'/><path d='M65 9 L72 11 L70 15 L66 14 Z' fill='%23F2B5A0'/></svg>">
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><rect width='100' height='100' rx='22' fill='%2300ADCE'/><path d='M50 90 L24 92 L26 96 L50 94 Z' fill='%23F2B5A0'/><path d='M50 90 L76 92 L74 96 L50 94 Z' fill='%23F2B5A0' opacity='0.78'/><path d='M43 58 L47 72 L36 90 L32 92' fill='none' stroke='%23FFFFFF' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/><path d='M39 59 L41 74 L48 90 L52 92' fill='none' stroke='%23FFFFFF' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/><path d='M20 45 L10 38 L19 51 Z' fill='%23FFFFFF'/><path d='M18 50 C16 42 24 37 35 37 C48 37 57 43 55 52 C54 60 45 63 35 62 C26 61 20 58 18 50 Z' fill='%23FFFFFF'/><path d='M52 44 C49 30 55 20 62 12' fill='none' stroke='%23FFFFFF' stroke-width='4.6' stroke-linecap='round'/><circle cx='63' cy='11' r='3.8' fill='%23FFFFFF'/><path d='M65 9 L72 11 L70 15 L66 14 Z' fill='%23F2B5A0'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -445,13 +446,10 @@ let TNT_DATA_URI = null;
   } catch(e) { console.warn('TNT font:', e); }
 })();
 
-/* PWA */
-(function() {
-  const svg = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" rx="22" fill="#00ADCE"/><path d="M50 90 L24 92 L26 96 L50 94 Z" fill="#F2B5A0"/><path d="M50 90 L76 92 L74 96 L50 94 Z" fill="#F2B5A0" opacity="0.78"/><path d="M43 58 L47 72 L36 90 L32 92" fill="none" stroke="#FFFFFF" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M39 59 L41 74 L48 90 L52 92" fill="none" stroke="#FFFFFF" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 45 L10 38 L19 51 Z" fill="#FFFFFF"/><path d="M18 50 C16 42 24 37 35 37 C48 37 57 43 55 52 C54 60 45 63 35 62 C26 61 20 58 18 50 Z" fill="#FFFFFF"/><path d="M52 44 C49 30 55 20 62 12" fill="none" stroke="#FFFFFF" stroke-width="4.6" stroke-linecap="round"/><circle cx="63" cy="11" r="3.8" fill="#FFFFFF"/><path d="M65 9 L72 11 L70 15 L66 14 Z" fill="#F2B5A0"/></svg>`;
-  const mf = {name:'AtomBook',short_name:'AtomBook',description:'Minimal EPUB reader.',start_url:'./',scope:'./',display:'standalone',orientation:'any',background_color:'#F5E9D5',theme_color:'#00ADCE',icons:[{src:'data:image/svg+xml,'+encodeURIComponent(svg),sizes:'any',type:'image/svg+xml',purpose:'any'},{src:'data:image/svg+xml,'+encodeURIComponent(svg),sizes:'any',type:'image/svg+xml',purpose:'maskable'}]};
-  try{const l=document.createElement('link');l.rel='manifest';l.href=URL.createObjectURL(new Blob([JSON.stringify(mf)],{type:'application/manifest+json'}));document.head.appendChild(l);}catch(e){}
-  if('serviceWorker'in navigator){try{navigator.serviceWorker.register(URL.createObjectURL(new Blob([`const C='ab-v2';self.addEventListener('install',()=>self.skipWaiting());self.addEventListener('activate',e=>e.waitUntil(clients.claim()));self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>caches.match(e.request))));`],{type:'text/javascript'})),{scope:'./'});}catch(e){}}
-})();
+/* PWA — real static files; blob SW cannot control the page's HTTPS scope */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js', {scope: './'}).catch(console.warn);
+}
 
 /* Font map */
 const FONTS = {
