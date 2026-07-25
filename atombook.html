@@ -660,7 +660,21 @@ function buildSectionWeights(){
   for(let i=0;i<spineLen;i++){secStart[i]=acc;acc+=secCount[i];}
   totalUnits=acc||1;
 }
-/* Turn a location.start into {pct, unit} — always advances on page turn. */
+/* epub.js emits two different location shapes. Flatten both to one object.
+   relocated       -> {start:{index,href,cfi,displayed:{page,total},percentage}}
+   locationChanged -> {index,href,start:"<cfi>",end:"<cfi>",percentage}
+   Reading .index/.displayed off the second one's .start silently gives
+   undefined, which is what pinned progress at 0 on every book. */
+function normalizeLoc(loc){
+  if(!loc)return null;
+  const s=loc.start;
+  if(typeof s==='string')
+    return{cfi:s,index:loc.index,href:loc.href,percentage:loc.percentage,displayed:null};
+  if(s&&typeof s==='object')
+    return{cfi:s.cfi,index:s.index,href:s.href,percentage:s.percentage,displayed:s.displayed};
+  return null;
+}
+/* Turn a normalized location into {pct, unit} — always advances on page turn. */
 function posFromLoc(s){
   if(!secStart.length)buildSectionWeights();
   const i=Math.max(0,Math.min(spineLen-1,typeof s?.index==='number'?s.index:0));
@@ -785,7 +799,10 @@ async function openBook(buf,filename){
       else if(e.key==='Escape')closeAll();
     });
   });
-  rend.on('locationChanged',loc=>onLocChanged(loc));
+  /* 'relocated' carries the full location object ({start:{index,href,cfi,displayed}}).
+     'locationChanged' carries a FLAT payload whose .start is a bare CFI string —
+     reading .index/.displayed/.percentage off it yields undefined. Use relocated. */
+  rend.on('relocated',loc=>onLocChanged(loc));
   rend.on('selected',(cfiRange,contents)=>{
     const sel=contents.window.getSelection();if(!sel||sel.isCollapsed)return;
     const txt=sel.toString().trim();if(txt.length<2)return;
@@ -849,7 +866,7 @@ function fmtRemain(mins){
 /* Recompute the bottom bar from the current location (no event needed) —
    used after locations generate and after a font-size change repaginates. */
 function refreshProgress(){
-  const s=rend?.location?.start;
+  const s=normalizeLoc(rend?.location);
   if(!s||!book)return;
   const pos=posFromLoc(s);
   lastPct=pos.pct;lastLocIdx=Math.round(pos.unit);
@@ -860,15 +877,19 @@ function refreshProgress(){
 }
 async function onLocChanged(loc){
   if(!loc||!book)return;
-  const s=loc.start,bd=bookData();
+  const s=normalizeLoc(loc),bd=bookData();
+  if(!s)return;
   const pos=posFromLoc(s);
   lastPct=pos.pct;lastLocIdx=Math.round(pos.unit);
-  if(bd)bd.progress={cfi:s.cfi,pct:pos.pct,ts:Date.now()};
   const pct=Math.round(pos.pct*100);
   $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
   updatePageDisplay();updateChRing(pos);
   if(totalMins>0)$('read-time').textContent=fmtRemain(Math.round((1-pos.pct)*totalMins));
-  idbSet('kv','prog_'+bookId,{cfi:s.cfi,pct:pos.pct,ts:Date.now()}).catch(()=>{});
+  /* Only persist a resumable position when we actually have a CFI. */
+  if(s.cfi){
+    if(bd)bd.progress={cfi:s.cfi,pct:pos.pct,ts:Date.now()};
+    idbSet('kv','prog_'+bookId,{cfi:s.cfi,pct:pos.pct,ts:Date.now()}).catch(()=>{});
+  }
   await saveData();
 }
 
