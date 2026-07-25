@@ -161,6 +161,7 @@ textarea,input{font-family:inherit;}
 #prog-track{width:88px;height:2px;background:var(--border);border-radius:1px;overflow:hidden;}
 #prog-fill{height:100%;width:0%;background:var(--accent);border-radius:1px;transition:width .4s ease;}
 #prog-pct{font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
+#read-time{font-size:10px;color:var(--text-muted);opacity:.65;white-space:nowrap;font-variant-numeric:tabular-nums;}
 
 @keyframes leafNext{
   0%{transform:translateX(0);opacity:1;}
@@ -390,6 +391,7 @@ textarea,input{font-family:inherit;}
     <div class="prog-row">
       <div id="prog-track"><div id="prog-fill"></div></div>
       <div id="prog-pct">0%</div>
+      <div id="read-time"></div>
     </div>
   </div>
 </div>
@@ -461,7 +463,7 @@ const FONTS = {
 };
 
 /* State */
-let book=null,rend=null,bookId=null;
+let book=null,rend=null,bookId=null,totalMins=0;
 let allData={v:1,books:{}};
 let syncDir=null;
 let theme='sepia',fontSize=18,fontKey='tnt';
@@ -676,6 +678,13 @@ async function openBook(buf,filename){
   const start=bookData().progress?.cfi;
   await rend.display(start||undefined);
   buildTOC();restoreHighlights();
+  /* async: accurate char-based locations → fixes percentage + enables read-time estimate */
+  totalMins=0;$('read-time').textContent='';
+  book.locations.generate(150).then(()=>{
+    totalMins=Math.round(book.locations.total*150/1000);
+    const cur=rend.currentLocation?.()||rend.location;
+    if(cur)onLocChanged(cur);
+  }).catch(()=>{});
   /* async: extract cover + save to library */
   extractCover(book).then(cover=>addToLibrary(buf,title,author,cover));
   library.style.display='none';
@@ -693,12 +702,22 @@ function go(dir){
 }
 
 /* Progress */
+function fmtRemain(mins){
+  if(mins<=0)return'';
+  if(mins<2)return'~1 min left';
+  if(mins<60)return'~'+mins+' min left';
+  return'~'+Math.floor(mins/60)+'h '+(mins%60?mins%60+'m ':'')+' left';
+}
 async function onLocChanged(loc){
   if(!loc||!book)return;
   const s=loc.start,bd=bookData();
   if(bd)bd.progress={cfi:s.cfi,pct:s.percentage,ts:Date.now()};
   const pct=Math.round((s.percentage||0)*100);
   $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
+  if(totalMins>0){
+    const rem=Math.round((1-(s.percentage||0))*totalMins);
+    $('read-time').textContent=fmtRemain(rem);
+  }
   try{const nav=book.navigation,item=nav&&nav.get(s.href);$('ch-title').textContent=item?(item.label?.trim()||'—'):'—';}catch(_){}
   await saveData();
 }
@@ -775,7 +794,7 @@ document.querySelectorAll('.tp-font').forEach(b=>b.onclick=()=>setFont(b.dataset
 $('toc-btn').onclick=toggleTOC;$('notes-btn').onclick=toggleNotes;$('theme-btn').onclick=toggleThemePop;
 $('toc-x').onclick=closeAll;$('note-x').onclick=closeAll;overlay.onclick=closeAll;
 $('fullscreen-btn').onclick=toggleFS;
-$('home-btn').onclick=()=>{closeAll();reader.classList.remove('on');library.style.display='flex';if(rend){rend.destroy();rend=null;}if(book){book.destroy();book=null;}epubViewer.innerHTML='';$('tb-title').textContent='—';$('ch-title').textContent='—';$('prog-fill').style.width='0%';$('prog-pct').textContent='0%';renderLibrary();};
+$('home-btn').onclick=()=>{closeAll();reader.classList.remove('on');library.style.display='flex';if(rend){rend.destroy();rend=null;}if(book){book.destroy();book=null;}epubViewer.innerHTML='';$('tb-title').textContent='—';$('ch-title').textContent='—';$('prog-fill').style.width='0%';$('prog-pct').textContent='0%';$('read-time').textContent='';totalMins=0;renderLibrary();};
 $('fs-down').onclick=()=>setFS(fontSize-1);$('fs-up').onclick=()=>setFS(fontSize+1);
 $('prev-btn').onclick=()=>go('prev');$('next-btn').onclick=()=>go('next');
 document.addEventListener('keydown',e=>{
