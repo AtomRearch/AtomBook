@@ -467,7 +467,7 @@ const FONTS = {
 };
 
 /* State */
-let book=null,rend=null,bookId=null,totalMins=0,totalLocs=0,lastPct=0,_generating=false;
+let book=null,rend=null,bookId=null,totalMins=0,totalLocs=0,lastPct=0;
 let allData={v:1,books:{}};
 let syncDir=null;
 let theme='sepia',fontSize=18,fontKey='tnt';
@@ -691,28 +691,27 @@ async function openBook(buf,filename){
   const start=bookData().progress?.cfi;
   await rend.display(start||undefined);
   buildTOC();restoreHighlights();
-  /* async: char-based locations — guard with _generating to prevent 0% overwrite */
-  const _genCfi=bookData()?.progress?.cfi||null;
-  totalMins=0;totalLocs=0;_generating=true;
+  /* async: generate char-based locations, then recompute percentage from current CFI */
+  totalMins=0;totalLocs=0;
   $('read-time').textContent='';$('page-num').textContent='';
   book.locations.generate(150).then(()=>{
-    _generating=false;
     totalLocs=book.locations.total;
     totalMins=Math.round(totalLocs*150/1000);
-    if(_genCfi&&typeof book.locations.percentageFromCfi==='function'){
+    /* before generate, loc.start.percentage = NaN (0/0); now look it up properly */
+    const cfi=bookData()?.progress?.cfi;
+    if(cfi&&typeof book.locations.percentageFromCfi==='function'){
       try{
-        const p=book.locations.percentageFromCfi(_genCfi);
-        if(typeof p==='number'&&p>=0&&p<=1){
+        const p=book.locations.percentageFromCfi(cfi);
+        if(typeof p==='number'&&!isNaN(p)&&p>=0&&p<=1){
           lastPct=p;
           const pct=Math.round(p*100);
-          $('prog-fill').style.width=pct+'%';
-          $('prog-pct').textContent=pct+'%';
+          $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
           $('read-time').textContent=totalMins>0?fmtRemain(Math.round((1-p)*totalMins)):'';
         }
       }catch(_e){}
     }
     updatePageDisplay();
-  }).catch(()=>{_generating=false;});
+  }).catch(()=>{});
   /* async: extract cover + save to library */
   extractCover(book).then(cover=>addToLibrary(buf,title,author,cover));
   library.style.display='none';
@@ -739,19 +738,22 @@ function fmtRemain(mins){
 async function onLocChanged(loc){
   if(!loc||!book)return;
   const s=loc.start,bd=bookData();
-  /* ignore events fired by generate() — they reset position to 0 */
-  if(!_generating){
-    if(bd)bd.progress={cfi:s.cfi,pct:s.percentage,ts:Date.now()};
-    lastPct=s.percentage||0;
-    const pct=Math.round(lastPct*100);
-    $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
-    updatePageDisplay();
-    if(totalMins>0){
-      $('read-time').textContent=fmtRemain(Math.round((1-lastPct)*totalMins));
-    }
-    await saveData();
+  if(bd)bd.progress={cfi:s.cfi,pct:s.percentage,ts:Date.now()};
+  /* loc.start.percentage = NaN before generate() — use percentageFromCfi once available */
+  if(totalLocs>0&&typeof book.locations.percentageFromCfi==='function'){
+    try{
+      const p=book.locations.percentageFromCfi(s.cfi);
+      if(typeof p==='number'&&!isNaN(p)&&p>=0&&p<=1){
+        lastPct=p;
+        const pct=Math.round(p*100);
+        $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
+        updatePageDisplay();
+        if(totalMins>0)$('read-time').textContent=fmtRemain(Math.round((1-p)*totalMins));
+      }
+    }catch(_){}
   }
   try{const nav=book.navigation,item=nav&&nav.get(s.href);$('ch-title').textContent=item?(item.label?.trim()||'—'):'—';}catch(_){}
+  await saveData();
 }
 
 /* TOC */
@@ -826,7 +828,7 @@ document.querySelectorAll('.tp-font').forEach(b=>b.onclick=()=>setFont(b.dataset
 $('toc-btn').onclick=toggleTOC;$('notes-btn').onclick=toggleNotes;$('theme-btn').onclick=toggleThemePop;
 $('toc-x').onclick=closeAll;$('note-x').onclick=closeAll;overlay.onclick=closeAll;
 $('fullscreen-btn').onclick=toggleFS;
-$('home-btn').onclick=()=>{closeAll();reader.classList.remove('on');library.style.display='flex';if(rend){rend.destroy();rend=null;}if(book){book.destroy();book=null;}epubViewer.innerHTML='';$('tb-title').textContent='—';$('ch-title').textContent='—';$('prog-fill').style.width='0%';$('prog-pct').textContent='0%';$('read-time').textContent='';$('page-num').textContent='';totalMins=0;totalLocs=0;lastPct=0;_generating=false;renderLibrary();};
+$('home-btn').onclick=()=>{closeAll();reader.classList.remove('on');library.style.display='flex';if(rend){rend.destroy();rend=null;}if(book){book.destroy();book=null;}epubViewer.innerHTML='';$('tb-title').textContent='—';$('ch-title').textContent='—';$('prog-fill').style.width='0%';$('prog-pct').textContent='0%';$('read-time').textContent='';$('page-num').textContent='';totalMins=0;totalLocs=0;lastPct=0;renderLibrary();};
 $('fs-down').onclick=()=>setFS(fontSize-1);$('fs-up').onclick=()=>setFS(fontSize+1);
 $('prev-btn').onclick=()=>go('prev');$('next-btn').onclick=()=>go('next');
 document.addEventListener('keydown',e=>{
