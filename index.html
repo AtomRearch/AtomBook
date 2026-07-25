@@ -155,8 +155,7 @@ textarea,input{font-family:inherit;}
   justify-content:space-between;padding:0 22px;background:var(--bar-bg);
   backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
   border-top:1px solid var(--border);transition:background .3s;position:relative;}
-#ch-title{font-size:11px;color:var(--text-muted);font-weight:300;white-space:nowrap;
-  overflow:hidden;text-overflow:ellipsis;max-width:34%;letter-spacing:.12px;}
+#ch-ring{color:var(--text-muted);}
 #page-num{position:absolute;left:50%;transform:translateX(-50%);font-size:11px;
   color:var(--text-muted);font-variant-numeric:tabular-nums;white-space:nowrap;
   opacity:.7;letter-spacing:.04em;pointer-events:none;}
@@ -390,7 +389,16 @@ textarea,input{font-family:inherit;}
     </button>
   </div>
   <div id="bottom-bar">
-    <div id="ch-title">—</div>
+    <!-- chapter progress ring -->
+    <svg id="ch-ring" viewBox="0 0 26 26" width="26" height="26" style="flex-shrink:0;cursor:default" title="">
+      <circle cx="13" cy="13" r="9.5" fill="none" stroke="currentColor" stroke-width="2.2" opacity=".15"/>
+      <circle id="ch-arc" cx="13" cy="13" r="9.5" fill="none" stroke="currentColor"
+              stroke-width="2.2" stroke-dasharray="59.69" stroke-dashoffset="59.69"
+              stroke-linecap="round" transform="rotate(-90 13 13)" opacity=".55"
+              style="transition:stroke-dashoffset .4s ease"/>
+      <text id="ch-num" x="13" y="16.5" text-anchor="middle" font-size="7"
+            fill="currentColor" opacity=".5" font-weight="300" style="user-select:none">·</text>
+    </svg>
     <div id="page-num"></div>
     <div class="prog-row">
       <div id="prog-track"><div id="prog-fill"></div></div>
@@ -467,7 +475,8 @@ const FONTS = {
 };
 
 /* State */
-let book=null,rend=null,bookId=null,totalMins=0,totalLocs=0,lastPct=0;
+let book=null,rend=null,bookId=null,totalMins=0,totalLocs=0,lastPct=0,lastLocIdx=0;
+let chapterMarkers=[];
 let allData={v:1,books:{}};
 let syncDir=null;
 let theme='sepia',fontSize=18,fontKey='tnt';
@@ -622,12 +631,48 @@ function applyFontToIframe(){
 /* Font size */
 function setFS(n){fontSize=Math.max(12,Math.min(30,n));$('fs-num').textContent=fontSize;if(rend)rend.themes.fontSize(fontSize+'px');updatePageDisplay();}
 
-/* Page-number display (font-size-aware) */
+/* Chapter ring */
+function buildChapterMarkers(){
+  chapterMarkers=[];
+  if(!book?.navigation?.toc||!totalLocs)return;
+  const sl=book.spine?.items?.length||book.spine?.length||1;
+  const items=[];
+  function walk(t){t.forEach(i=>{items.push(i);if(i.subitems?.length)walk(i.subitems);});}
+  walk(book.navigation.toc);
+  items.forEach((item,idx)=>{
+    try{
+      const href=item.href.split('#')[0];
+      const si=book.spine.get(href);
+      if(!si)return;
+      chapterMarkers.push({pct:si.index/sl,num:idx+1,title:item.label?.trim()||''});
+    }catch(_){}
+  });
+  chapterMarkers.sort((a,b)=>a.pct-b.pct);
+}
+const CH_CIRC=59.69; /* 2π × 9.5 */
+function updateChRing(){
+  const el=$('ch-arc'),nl=$('ch-num');
+  if(!el)return;
+  if(!chapterMarkers.length||!totalLocs){el.style.strokeDashoffset=CH_CIRC;nl.textContent='·';return;}
+  /* find current chapter */
+  let ci=0;
+  for(let i=0;i<chapterMarkers.length;i++){if(chapterMarkers[i].pct<=lastPct)ci=i;else break;}
+  const startPct=chapterMarkers[ci].pct;
+  const endPct=ci<chapterMarkers.length-1?chapterMarkers[ci+1].pct:1;
+  const chPct=endPct>startPct?(lastPct-startPct)/(endPct-startPct):0;
+  el.style.strokeDashoffset=CH_CIRC*(1-Math.max(0,Math.min(1,chPct)));
+  nl.textContent=String(chapterMarkers[ci].num);
+  $('ch-ring').title=chapterMarkers[ci].title||'';
+}
+
+/* Page-number display (font-size-aware, uses lastLocIdx for precision) */
 function updatePageDisplay(){
   if(!totalLocs){$('page-num').textContent='';return;}
-  /* 1350 chars ≈ one spread at base fontSize 18; scales linearly with fontSize */
   const total=Math.max(1,Math.round(totalLocs*150*fontSize/(1350*18)));
-  const cur=Math.min(total,Math.max(1,Math.round(lastPct*total)||1));
+  /* use integer location index to avoid floating-point rounding errors */
+  const cur=lastLocIdx>0
+    ?Math.min(total,Math.max(1,Math.ceil(lastLocIdx/totalLocs*total)))
+    :Math.min(total,Math.max(1,Math.round(lastPct*total)||1));
   $('page-num').textContent=cur+' / '+total;
 }
 
@@ -701,34 +746,37 @@ async function openBook(buf,filename){
   const start=bd.progress?.cfi;
   await rend.display(start||undefined);
   buildTOC();restoreHighlights();
-  /* async: generate char-based locations, then recompute percentage from current CFI */
-  totalMins=0;totalLocs=0;
+  /* async: generate char-based locations */
+  totalMins=0;totalLocs=0;lastLocIdx=0;chapterMarkers=[];
   $('read-time').textContent='';$('page-num').textContent='';
-  book.locations.generate(150).then(()=>{
-    totalLocs=book.locations.total;
+  $('ch-arc').style.strokeDashoffset=CH_CIRC;$('ch-num').textContent='·';
+  const _genBook=book; /* stale-closure guard: capture current book ref */
+  _genBook.locations.generate(150).then(()=>{
+    if(book!==_genBook)return; /* user switched books while generating */
+    totalLocs=_genBook.locations.total;
     totalMins=Math.round(totalLocs*150/1000);
-    /* Compute % from current position now that _locations is populated */
+    buildChapterMarkers();
+    /* Compute % for current CFI now that _locations is populated */
     const curCfi=rend.location?.start?.cfi||bookData()?.progress?.cfi;
     if(curCfi&&totalLocs>0){
-      let p=-1;
-      if(typeof book.locations.percentageFromCfi==='function'){
-        try{const q=book.locations.percentageFromCfi(curCfi);if(typeof q==='number'&&!isNaN(q)&&q>=0&&q<=1)p=q;}catch(_){}
+      let idx=-1,p=-1;
+      if(typeof _genBook.locations.locationFromCfi==='function'){
+        try{const q=_genBook.locations.locationFromCfi(curCfi);if(typeof q==='number'&&q>=0){idx=q;p=q/totalLocs;}}catch(_){}
       }
-      /* Spine-index fallback */
+      if(p<0&&typeof _genBook.locations.percentageFromCfi==='function'){
+        try{const q=_genBook.locations.percentageFromCfi(curCfi);if(typeof q==='number'&&!isNaN(q)&&q>=0&&q<=1)p=q;}catch(_){}
+      }
       if(p<0){
-        try{
-          const m=curCfi.match(/epubcfi\(\/6\/(\d+)/);
-          if(m){const si=Math.floor(parseInt(m[1])/2),sl=book.spine?.items?.length||book.spine?.length||10;p=Math.min(si/sl,.99);}
-        }catch(_){}
+        try{const m=curCfi.match(/epubcfi\(\/6\/(\d+)/);if(m){const si=Math.floor(parseInt(m[1])/2),sl=_genBook.spine?.items?.length||_genBook.spine?.length||10;p=Math.min(si/sl,.99);}}catch(_){}
       }
       if(p>=0&&p<=1){
-        lastPct=p;
+        lastPct=p;if(idx>=0)lastLocIdx=idx;
         const pct=Math.round(p*100);
         $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
         $('read-time').textContent=totalMins>0?fmtRemain(Math.round((1-p)*totalMins)):'';
       }
     }
-    updatePageDisplay();
+    updatePageDisplay();updateChRing();
   }).catch(()=>{});
   /* async: extract cover + save to library */
   extractCover(book).then(cover=>addToLibrary(buf,title,author,cover));
@@ -758,30 +806,30 @@ async function onLocChanged(loc){
   const s=loc.start,bd=bookData();
   if(bd)bd.progress={cfi:s.cfi,pct:s.percentage,ts:Date.now()};
   if(totalLocs>0){
-    /* Layer 1: s.percentage — epub.js sets this via locationFromCfi after generate fires */
-    let p=-1;
-    if(typeof s.percentage==='number'&&!isNaN(s.percentage)&&s.percentage>=0&&s.percentage<=1)p=s.percentage;
-    /* Layer 2: percentageFromCfi */
+    /* Primary: locationFromCfi gives integer index — most precise, avoids float rounding */
+    let idx=-1,p=-1;
+    if(typeof book.locations.locationFromCfi==='function'){
+      try{const q=book.locations.locationFromCfi(s.cfi);if(typeof q==='number'&&q>=0){idx=q;p=q/totalLocs;}}catch(_){}
+    }
+    /* Layer 2: epub.js native s.percentage */
+    if(p<0&&typeof s.percentage==='number'&&!isNaN(s.percentage)&&s.percentage>=0&&s.percentage<=1)p=s.percentage;
+    /* Layer 3: percentageFromCfi */
     if(p<0&&typeof book.locations.percentageFromCfi==='function'){
       try{const q=book.locations.percentageFromCfi(s.cfi);if(typeof q==='number'&&!isNaN(q)&&q>=0&&q<=1)p=q;}catch(_){}
     }
-    /* Layer 3: spine-index from CFI string — non-zero for any non-first chapter */
+    /* Layer 4: spine-index from CFI string — guaranteed non-zero for non-first chapters */
     if(p<0){
-      try{
-        const m=s.cfi.match(/epubcfi\(\/6\/(\d+)/);
-        if(m){const si=Math.floor(parseInt(m[1])/2),sl=book.spine?.items?.length||book.spine?.length||10;p=Math.min(si/sl,.99);}
-      }catch(_){}
+      try{const m=s.cfi.match(/epubcfi\(\/6\/(\d+)/);if(m){const si=Math.floor(parseInt(m[1])/2),sl=book.spine?.items?.length||book.spine?.length||10;p=Math.min(si/sl,.99);}}catch(_){}
     }
     if(p>=0&&p<=1){
-      lastPct=p;
+      lastPct=p;if(idx>=0)lastLocIdx=idx;
       const pct=Math.round(p*100);
       $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
-      updatePageDisplay();
+      updatePageDisplay();updateChRing();
       if(totalMins>0)$('read-time').textContent=fmtRemain(Math.round((1-p)*totalMins));
       idbSet('kv','prog_'+bookId,{cfi:s.cfi,pct:p,ts:Date.now()}).catch(()=>{});
     }
   }
-  try{const nav=book.navigation,item=nav&&nav.get(s.href);$('ch-title').textContent=item?(item.label?.trim()||'—'):'—';}catch(_){}
   await saveData();
 }
 
@@ -857,7 +905,7 @@ document.querySelectorAll('.tp-font').forEach(b=>b.onclick=()=>setFont(b.dataset
 $('toc-btn').onclick=toggleTOC;$('notes-btn').onclick=toggleNotes;$('theme-btn').onclick=toggleThemePop;
 $('toc-x').onclick=closeAll;$('note-x').onclick=closeAll;overlay.onclick=closeAll;
 $('fullscreen-btn').onclick=toggleFS;
-$('home-btn').onclick=()=>{closeAll();reader.classList.remove('on');library.style.display='flex';if(rend){rend.destroy();rend=null;}if(book){book.destroy();book=null;}epubViewer.innerHTML='';$('tb-title').textContent='—';$('ch-title').textContent='—';$('prog-fill').style.width='0%';$('prog-pct').textContent='0%';$('read-time').textContent='';$('page-num').textContent='';totalMins=0;totalLocs=0;lastPct=0;renderLibrary();};
+$('home-btn').onclick=()=>{closeAll();reader.classList.remove('on');library.style.display='flex';if(rend){rend.destroy();rend=null;}if(book){book.destroy();book=null;}epubViewer.innerHTML='';$('tb-title').textContent='—';$('prog-fill').style.width='0%';$('prog-pct').textContent='0%';$('read-time').textContent='';$('page-num').textContent='';$('ch-arc').style.strokeDashoffset=CH_CIRC;$('ch-num').textContent='·';totalMins=0;totalLocs=0;lastPct=0;lastLocIdx=0;chapterMarkers=[];renderLibrary();};
 $('fs-down').onclick=()=>setFS(fontSize-1);$('fs-up').onclick=()=>setFS(fontSize+1);
 $('prev-btn').onclick=()=>go('prev');$('next-btn').onclick=()=>go('next');
 document.addEventListener('keydown',e=>{
