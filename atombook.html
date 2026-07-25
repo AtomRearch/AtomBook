@@ -671,6 +671,12 @@ async function openBook(buf,filename){
       doc.head.appendChild(lnk);
     }
     const st=doc.createElement('style');st.id='ab-font';st.textContent=getFontCSS(fontKey);doc.head.appendChild(st);
+    /* Forward arrow-key events from iframe to main doc so global listener fires */
+    doc.addEventListener('keydown',e=>{
+      if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key===' '){e.preventDefault();go('next');}
+      else if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();go('prev');}
+      else if(e.key==='Escape')closeAll();
+    });
   });
   rend.on('locationChanged',loc=>onLocChanged(loc));
   rend.on('selected',(cfiRange,contents)=>{
@@ -701,10 +707,28 @@ async function openBook(buf,filename){
   book.locations.generate(150).then(()=>{
     totalLocs=book.locations.total;
     totalMins=Math.round(totalLocs*150/1000);
-    /* Re-display current CFI → triggers fresh locationChanged with epub.js-computed percentage */
-    const curCfi=rend.location?.start?.cfi;
-    if(curCfi)rend.display(curCfi).catch(()=>{});
-    else updatePageDisplay();
+    /* Compute % from current position now that _locations is populated */
+    const curCfi=rend.location?.start?.cfi||bookData()?.progress?.cfi;
+    if(curCfi&&totalLocs>0){
+      let p=-1;
+      if(typeof book.locations.percentageFromCfi==='function'){
+        try{const q=book.locations.percentageFromCfi(curCfi);if(typeof q==='number'&&!isNaN(q)&&q>=0&&q<=1)p=q;}catch(_){}
+      }
+      /* Spine-index fallback */
+      if(p<0){
+        try{
+          const m=curCfi.match(/epubcfi\(\/6\/(\d+)/);
+          if(m){const si=Math.floor(parseInt(m[1])/2),sl=book.spine?.items?.length||book.spine?.length||10;p=Math.min(si/sl,.99);}
+        }catch(_){}
+      }
+      if(p>=0&&p<=1){
+        lastPct=p;
+        const pct=Math.round(p*100);
+        $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
+        $('read-time').textContent=totalMins>0?fmtRemain(Math.round((1-p)*totalMins)):'';
+      }
+    }
+    updatePageDisplay();
   }).catch(()=>{});
   /* async: extract cover + save to library */
   extractCover(book).then(cover=>addToLibrary(buf,title,author,cover));
