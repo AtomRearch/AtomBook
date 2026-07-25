@@ -688,7 +688,11 @@ async function openBook(buf,filename){
     }catch(_){}
   });
   rend.on('deselected',()=>setTimeout(hideSelBar,180));
-  const start=bookData().progress?.cfi;
+  /* Restore reading position: IDB persists across sessions, sync folder optional */
+  if(!bd.progress){
+    try{const p=await idbGet('kv','prog_'+bookId);if(p)bd.progress={cfi:p.cfi,pct:p.pct,ts:p.ts||Date.now()};}catch(_){}
+  }
+  const start=bd.progress?.cfi;
   await rend.display(start||undefined);
   buildTOC();restoreHighlights();
   /* async: generate char-based locations, then recompute percentage from current CFI */
@@ -697,20 +701,10 @@ async function openBook(buf,filename){
   book.locations.generate(150).then(()=>{
     totalLocs=book.locations.total;
     totalMins=Math.round(totalLocs*150/1000);
-    /* before generate, loc.start.percentage = NaN (0/0); now look it up properly */
-    const cfi=bookData()?.progress?.cfi;
-    if(cfi&&typeof book.locations.percentageFromCfi==='function'){
-      try{
-        const p=book.locations.percentageFromCfi(cfi);
-        if(typeof p==='number'&&!isNaN(p)&&p>=0&&p<=1){
-          lastPct=p;
-          const pct=Math.round(p*100);
-          $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
-          $('read-time').textContent=totalMins>0?fmtRemain(Math.round((1-p)*totalMins)):'';
-        }
-      }catch(_e){}
-    }
-    updatePageDisplay();
+    /* Re-display current CFI → triggers fresh locationChanged with epub.js-computed percentage */
+    const curCfi=rend.location?.start?.cfi;
+    if(curCfi)rend.display(curCfi).catch(()=>{});
+    else updatePageDisplay();
   }).catch(()=>{});
   /* async: extract cover + save to library */
   extractCover(book).then(cover=>addToLibrary(buf,title,author,cover));
@@ -739,18 +733,29 @@ async function onLocChanged(loc){
   if(!loc||!book)return;
   const s=loc.start,bd=bookData();
   if(bd)bd.progress={cfi:s.cfi,pct:s.percentage,ts:Date.now()};
-  /* loc.start.percentage = NaN before generate() — use percentageFromCfi once available */
-  if(totalLocs>0&&typeof book.locations.percentageFromCfi==='function'){
-    try{
-      const p=book.locations.percentageFromCfi(s.cfi);
-      if(typeof p==='number'&&!isNaN(p)&&p>=0&&p<=1){
-        lastPct=p;
-        const pct=Math.round(p*100);
-        $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
-        updatePageDisplay();
-        if(totalMins>0)$('read-time').textContent=fmtRemain(Math.round((1-p)*totalMins));
-      }
-    }catch(_){}
+  if(totalLocs>0){
+    /* Layer 1: s.percentage — epub.js sets this via locationFromCfi after generate fires */
+    let p=-1;
+    if(typeof s.percentage==='number'&&!isNaN(s.percentage)&&s.percentage>=0&&s.percentage<=1)p=s.percentage;
+    /* Layer 2: percentageFromCfi */
+    if(p<0&&typeof book.locations.percentageFromCfi==='function'){
+      try{const q=book.locations.percentageFromCfi(s.cfi);if(typeof q==='number'&&!isNaN(q)&&q>=0&&q<=1)p=q;}catch(_){}
+    }
+    /* Layer 3: spine-index from CFI string — non-zero for any non-first chapter */
+    if(p<0){
+      try{
+        const m=s.cfi.match(/epubcfi\(\/6\/(\d+)/);
+        if(m){const si=Math.floor(parseInt(m[1])/2),sl=book.spine?.items?.length||book.spine?.length||10;p=Math.min(si/sl,.99);}
+      }catch(_){}
+    }
+    if(p>=0&&p<=1){
+      lastPct=p;
+      const pct=Math.round(p*100);
+      $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
+      updatePageDisplay();
+      if(totalMins>0)$('read-time').textContent=fmtRemain(Math.round((1-p)*totalMins));
+      idbSet('kv','prog_'+bookId,{cfi:s.cfi,pct:p,ts:Date.now()}).catch(()=>{});
+    }
   }
   try{const nav=book.navigation,item=nav&&nav.get(s.href);$('ch-title').textContent=item?(item.label?.trim()||'—'):'—';}catch(_){}
   await saveData();
