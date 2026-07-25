@@ -477,6 +477,9 @@ const FONTS = {
 /* State */
 let book=null,rend=null,bookId=null,totalMins=0,totalLocs=0,lastPct=0,lastLocIdx=0;
 let chapterMarkers=[];
+/* Section-weight model: progress = spine index + page-within-section.
+   Independent of book.locations.locationFromCfi(), which returns 0 on some EPUBs. */
+let spineLen=1,secStart=[],secCount=[],totalUnits=1;
 let allData={v:1,books:{}};
 let syncDir=null;
 let theme='sepia',fontSize=18,fontKey='tnt';
@@ -629,73 +632,109 @@ function applyFontToIframe(){
 }
 
 /* Font size */
-function setFS(n){fontSize=Math.max(12,Math.min(30,n));$('fs-num').textContent=fontSize;if(rend)rend.themes.fontSize(fontSize+'px');updatePageDisplay();}
+function setFS(n){fontSize=Math.max(12,Math.min(30,n));$('fs-num').textContent=fontSize;if(rend)rend.themes.fontSize(fontSize+'px');updatePageDisplay();
+  /* repagination is async — re-read displayed.total once it settles */
+  setTimeout(refreshProgress,320);}
+
+/* ── Section-weight model ──────────────────────────────────────────
+   epub.js always reports location.start.index (spine index) and
+   location.start.displayed {page,total}. Those two are enough to build
+   an exact progress figure — no dependence on locationFromCfi(), which
+   silently returns 0 on EPUBs whose CFI base doesn't match _locations. */
+function buildSectionWeights(){
+  spineLen=book?.spine?.items?.length||1;
+  secCount=new Array(spineLen).fill(0);
+  /* Weight each spine section by how many generated locations fall in it. */
+  const locs=book?.locations?._locations||[];
+  let weighted=false;
+  for(const c of locs){
+    const m=/^epubcfi\(\/6\/(\d+)/.exec(c);
+    if(!m)continue;
+    const sp=Math.floor(parseInt(m[1],10)/2)-1;
+    if(sp>=0&&sp<spineLen){secCount[sp]++;weighted=true;}
+  }
+  /* Before generate() finishes (or if CFI bases are unusual): equal weights. */
+  if(!weighted)secCount.fill(1);
+  secStart=new Array(spineLen);
+  let acc=0;
+  for(let i=0;i<spineLen;i++){secStart[i]=acc;acc+=secCount[i];}
+  totalUnits=acc||1;
+}
+/* Turn a location.start into {pct, unit} — always advances on page turn. */
+function posFromLoc(s){
+  if(!secStart.length)buildSectionWeights();
+  const i=Math.max(0,Math.min(spineLen-1,typeof s?.index==='number'?s.index:0));
+  const dt=Math.max(1,s?.displayed?.total||1);
+  const dp=Math.max(1,Math.min(dt,s?.displayed?.page||1));
+  const unit=secStart[i]+((dp-1)/dt)*secCount[i];
+  return{pct:Math.max(0,Math.min(1,unit/totalUnits)),unit,spineIdx:i};
+}
 
 /* Chapter ring */
+const CH_WORDS={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,
+  eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,
+  eighteen:18,nineteen:19,twenty:20};
+function chapterNumFromLabel(label){
+  const t=(label||'').toLowerCase();
+  let m=/(?:chapter|ch\.?|part)\s+(\d+)/.exec(t);
+  if(m)return parseInt(m[1],10);
+  m=/(?:chapter|part)\s+([a-z]+)/.exec(t);
+  if(m&&CH_WORDS[m[1]])return CH_WORDS[m[1]];
+  m=/^\s*(\d+)[.、:\s]/.exec(t);
+  if(m)return parseInt(m[1],10);
+  return null;
+}
 function buildChapterMarkers(){
   chapterMarkers=[];
-  if(!book?.navigation?.toc||!totalLocs)return;
-  const spItems=book.spine?.items||[];
-  const sl=spItems.length||1;
+  const spItems=book?.spine?.items||[];
+  if(!book?.navigation?.toc||!spItems.length)return;
   const items=[];
   function walk(t){t.forEach(i=>{items.push(i);if(i.subitems?.length)walk(i.subitems);});}
   walk(book.navigation.toc);
   items.forEach((item,idx)=>{
     try{
-      const rawHref=item.href||'';
-      const href=rawHref.split('#')[0];
+      const href=(item.href||'').split('#')[0];
       const fname=href.split('/').pop();
-      /* Try spine.get first; fall back to filename scan (handles path prefix mismatches) */
+      /* spine.get() fails when TOC hrefs carry a different path prefix than
+         the spine's — fall back to matching on filename. */
       let si=book.spine.get(href);
-      if(!si&&fname){
-        for(const sp of spItems){
-          const sh=sp.href||sp.url||sp.canonical||'';
-          if(sh===href||sh.endsWith('/'+fname)||sh===fname){si=sp;break;}
-        }
-      }
-      if(!si)return;
-      const locIdx=Math.round(si.index/sl*totalLocs);
-      chapterMarkers.push({locIdx,pct:si.index/sl,href,num:idx+1,title:item.label?.trim()||''});
+      if(!si&&fname)si=spItems.find(sp=>{
+        const sh=sp.href||sp.url||sp.canonical||'';
+        return sh===href||sh.endsWith('/'+fname)||sh===fname;
+      });
+      if(!si||typeof si.index!=='number')return;
+      const label=item.label?.trim()||'';
+      chapterMarkers.push({spineIdx:si.index,ord:idx+1,num:chapterNumFromLabel(label),title:label});
     }catch(_){}
   });
-  chapterMarkers.sort((a,b)=>a.locIdx-b.locIdx);
+  chapterMarkers.sort((a,b)=>a.spineIdx-b.spineIdx);
+  /* Dedup sections that host several TOC entries — keep the first. */
+  chapterMarkers=chapterMarkers.filter((m,i,a)=>i===0||m.spineIdx!==a[i-1].spineIdx);
 }
 const CH_CIRC=59.69; /* 2π × 9.5 */
-function updateChRing(curHref){
+function updateChRing(pos){
   const el=$('ch-arc'),nl=$('ch-num');
   if(!el)return;
-  if(!chapterMarkers.length||!totalLocs){el.style.strokeDashoffset=CH_CIRC;nl.textContent='·';return;}
-  /* Primary: identify chapter by spine href (works even when lastPct=0 for early chapters) */
-  let ci=-1;
-  if(curHref){
-    const fname=curHref.split('/').pop().split('#')[0];
-    for(let i=0;i<chapterMarkers.length;i++){
-      const mh=chapterMarkers[i].href;
-      if(mh===curHref||mh===curHref.split('#')[0]||mh.split('/').pop()===fname){ci=i;break;}
-    }
+  if(!chapterMarkers.length||!pos){el.style.strokeDashoffset=CH_CIRC;nl.textContent='·';return;}
+  /* Current chapter = last marker at or before the current spine section. */
+  let ci=0;
+  for(let i=1;i<chapterMarkers.length;i++){
+    if(chapterMarkers[i].spineIdx<=pos.spineIdx)ci=i;else break;
   }
-  /* Fallback: by location index */
-  if(ci<0){
-    ci=0;
-    for(let i=1;i<chapterMarkers.length;i++){if(chapterMarkers[i].locIdx<=lastLocIdx)ci=i;else break;}
-  }
-  const ch=chapterMarkers[ci];
-  const nextCh=ci<chapterMarkers.length-1?chapterMarkers[ci+1]:null;
-  const chStart=ch.locIdx,chEnd=nextCh?nextCh.locIdx:totalLocs;
-  const chPct=chEnd>chStart?(lastLocIdx-chStart)/(chEnd-chStart):0;
+  const ch=chapterMarkers[ci],next=chapterMarkers[ci+1];
+  const uStart=secStart[ch.spineIdx];
+  const uEnd=next?secStart[next.spineIdx]:totalUnits;
+  const chPct=uEnd>uStart?(pos.unit-uStart)/(uEnd-uStart):0;
   el.style.strokeDashoffset=CH_CIRC*(1-Math.max(0,Math.min(1,chPct)));
-  nl.textContent=String(ch.num);
-  $('ch-ring').title=ch.title||'';
+  nl.textContent=String(ch.num??ch.ord);
+  $('ch-ring').title=(ch.title||'')+(chPct>0?' — '+Math.round(chPct*100)+'%':'');
 }
 
-/* Page-number display (font-size-aware, uses lastLocIdx for precision) */
+/* Page-number display (font-size-aware) */
 function updatePageDisplay(){
   if(!totalLocs){$('page-num').textContent='';return;}
   const total=Math.max(1,Math.round(totalLocs*150*fontSize/(1350*18)));
-  /* use integer location index to avoid floating-point rounding errors */
-  const cur=lastLocIdx>0
-    ?Math.min(total,Math.max(1,Math.ceil(lastLocIdx/totalLocs*total)))
-    :Math.min(total,Math.max(1,Math.round(lastPct*total)||1));
+  const cur=Math.min(total,Math.max(1,Math.round(lastPct*total)||1));
   $('page-num').textContent=cur+' / '+total;
 }
 
@@ -766,40 +805,23 @@ async function openBook(buf,filename){
   if(!bd.progress){
     try{const p=await idbGet('kv','prog_'+bookId);if(p)bd.progress={cfi:p.cfi,pct:p.pct,ts:p.ts||Date.now()};}catch(_){}
   }
+  /* Equal-weight model up front so the bar is live from the first page turn;
+     re-weighted below once locations are generated. */
+  totalMins=0;totalLocs=0;lastLocIdx=0;lastPct=0;
+  $('read-time').textContent='';$('page-num').textContent='';
+  $('ch-arc').style.strokeDashoffset=CH_CIRC;$('ch-num').textContent='·';
+  buildSectionWeights();buildChapterMarkers();
   const start=bd.progress?.cfi;
   await rend.display(start||undefined);
   buildTOC();restoreHighlights();
-  /* async: generate char-based locations */
-  totalMins=0;totalLocs=0;lastLocIdx=0;chapterMarkers=[];
-  $('read-time').textContent='';$('page-num').textContent='';
-  $('ch-arc').style.strokeDashoffset=CH_CIRC;$('ch-num').textContent='·';
+  /* async: generate char-based locations, then refine the weights */
   const _genBook=book; /* stale-closure guard: capture current book ref */
   _genBook.locations.generate(150).then(()=>{
     if(book!==_genBook)return; /* user switched books while generating */
     totalLocs=_genBook.locations.total;
     totalMins=Math.round(totalLocs*150/1000);
-    buildChapterMarkers();
-    /* Compute % for current CFI now that _locations is populated */
-    const curCfi=rend.location?.start?.cfi||bookData()?.progress?.cfi;
-    if(curCfi&&totalLocs>0){
-      let idx=-1,p=-1;
-      if(typeof _genBook.locations.locationFromCfi==='function'){
-        try{const q=_genBook.locations.locationFromCfi(curCfi);if(typeof q==='number'&&q>=0){idx=q;p=q/totalLocs;}}catch(_){}
-      }
-      if(p<0&&typeof _genBook.locations.percentageFromCfi==='function'){
-        try{const q=_genBook.locations.percentageFromCfi(curCfi);if(typeof q==='number'&&!isNaN(q)&&q>=0&&q<=1)p=q;}catch(_){}
-      }
-      if(p<0){
-        try{const m=curCfi.match(/epubcfi\(\/6\/(\d+)/);if(m){const si=Math.floor(parseInt(m[1])/2),sl=_genBook.spine?.items?.length||_genBook.spine?.length||10;p=Math.min(si/sl,.99);}}catch(_){}
-      }
-      if(p>=0&&p<=1){
-        lastPct=p;if(idx>=0)lastLocIdx=idx;
-        const pct=Math.round(p*100);
-        $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
-        $('read-time').textContent=totalMins>0?fmtRemain(Math.round((1-p)*totalMins)):'';
-      }
-    }
-    updatePageDisplay();updateChRing(rend.location?.start?.href||'');
+    buildSectionWeights();buildChapterMarkers();
+    refreshProgress();
   }).catch(()=>{});
   /* async: extract cover + save to library */
   extractCover(book).then(cover=>addToLibrary(buf,title,author,cover));
@@ -824,35 +846,29 @@ function fmtRemain(mins){
   if(mins<60)return'~'+mins+' min left';
   return'~'+Math.floor(mins/60)+'h '+(mins%60?mins%60+'m ':'')+' left';
 }
+/* Recompute the bottom bar from the current location (no event needed) —
+   used after locations generate and after a font-size change repaginates. */
+function refreshProgress(){
+  const s=rend?.location?.start;
+  if(!s||!book)return;
+  const pos=posFromLoc(s);
+  lastPct=pos.pct;lastLocIdx=Math.round(pos.unit);
+  const pct=Math.round(pos.pct*100);
+  $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
+  updatePageDisplay();updateChRing(pos);
+  if(totalMins>0)$('read-time').textContent=fmtRemain(Math.round((1-pos.pct)*totalMins));
+}
 async function onLocChanged(loc){
   if(!loc||!book)return;
   const s=loc.start,bd=bookData();
-  if(bd)bd.progress={cfi:s.cfi,pct:s.percentage,ts:Date.now()};
-  if(totalLocs>0){
-    /* Primary: locationFromCfi gives integer index — most precise, avoids float rounding */
-    let idx=-1,p=-1;
-    if(typeof book.locations.locationFromCfi==='function'){
-      try{const q=book.locations.locationFromCfi(s.cfi);if(typeof q==='number'&&q>=0){idx=q;p=q/totalLocs;}}catch(_){}
-    }
-    /* Layer 2: epub.js native s.percentage */
-    if(p<0&&typeof s.percentage==='number'&&!isNaN(s.percentage)&&s.percentage>=0&&s.percentage<=1)p=s.percentage;
-    /* Layer 3: percentageFromCfi */
-    if(p<0&&typeof book.locations.percentageFromCfi==='function'){
-      try{const q=book.locations.percentageFromCfi(s.cfi);if(typeof q==='number'&&!isNaN(q)&&q>=0&&q<=1)p=q;}catch(_){}
-    }
-    /* Layer 4: spine-index from CFI string — guaranteed non-zero for non-first chapters */
-    if(p<0){
-      try{const m=s.cfi.match(/epubcfi\(\/6\/(\d+)/);if(m){const si=Math.floor(parseInt(m[1])/2),sl=book.spine?.items?.length||book.spine?.length||10;p=Math.min(si/sl,.99);}}catch(_){}
-    }
-    if(p>=0&&p<=1){
-      lastPct=p;if(idx>=0)lastLocIdx=idx;
-      const pct=Math.round(p*100);
-      $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
-      updatePageDisplay();updateChRing(s.href||'');
-      if(totalMins>0)$('read-time').textContent=fmtRemain(Math.round((1-p)*totalMins));
-      idbSet('kv','prog_'+bookId,{cfi:s.cfi,pct:p,ts:Date.now()}).catch(()=>{});
-    }
-  }
+  const pos=posFromLoc(s);
+  lastPct=pos.pct;lastLocIdx=Math.round(pos.unit);
+  if(bd)bd.progress={cfi:s.cfi,pct:pos.pct,ts:Date.now()};
+  const pct=Math.round(pos.pct*100);
+  $('prog-fill').style.width=pct+'%';$('prog-pct').textContent=pct+'%';
+  updatePageDisplay();updateChRing(pos);
+  if(totalMins>0)$('read-time').textContent=fmtRemain(Math.round((1-pos.pct)*totalMins));
+  idbSet('kv','prog_'+bookId,{cfi:s.cfi,pct:pos.pct,ts:Date.now()}).catch(()=>{});
   await saveData();
 }
 
