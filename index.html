@@ -25,8 +25,8 @@
   --accent:#6B5340; --shadow:rgba(0,0,0,0.10);
 }
 [data-theme="sepia"] {
-  --bg:#F5E9D5; --text:#3B2E1E; --text-muted:#9A7E62;
-  --border:rgba(59,46,30,0.10); --bar-bg:rgba(245,233,213,0.94);
+  --bg:#FAF0E0; --text:#2C1B0E; --text-muted:#9A7E62;
+  --border:rgba(59,46,30,0.10); --bar-bg:rgba(250,240,224,0.94);
   --hover:rgba(59,46,30,0.06); --panel-bg:#EDE0C8;
   --accent:#8B5E3C; --shadow:rgba(59,46,30,0.12);
 }
@@ -597,7 +597,7 @@ function getFontCSS(key){
   const f=FONTS[key]||FONTS.tnt;
   let pre='';
   if(key==='tnt'&&TNT_DATA_URI)pre=`@font-face{font-family:"TNT Sports Serif";src:url("${TNT_DATA_URI}") format("truetype");font-weight:400;font-style:normal;}`;
-  return pre+`\nbody,p,span,div,li,td,th,blockquote,cite,section,article{font-family:${f.stack}!important;line-height:1.85!important;-webkit-font-smoothing:antialiased;}\np{text-indent:1.5em;margin-bottom:0!important;margin-top:0!important;}\nh1,h2,h3,h4,h5,h6{font-family:${f.stack}!important;line-height:1.3!important;text-indent:0!important;}\na{color:inherit!important;}`;
+  return pre+`\nbody,p,span,div,li,td,th,blockquote,cite,section,article{font-family:${f.stack}!important;font-weight:400!important;line-height:1.95!important;letter-spacing:0.015em;-webkit-font-smoothing:antialiased;}\np{text-indent:1.5em;margin-bottom:0!important;margin-top:0!important;text-align:justify!important;-webkit-hyphens:auto;hyphens:auto;word-break:break-word;}\nh1,h2,h3,h4,h5,h6{font-family:${f.stack}!important;font-weight:700!important;line-height:1.3!important;text-indent:0!important;text-align:left!important;letter-spacing:-0.01em;}\na{color:inherit!important;}`;
 }
 function setFont(key){
   fontKey=key;
